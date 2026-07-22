@@ -65,7 +65,7 @@ class TestEmptyBatch:
         assert "geometry_wkb" in batch.schema.names
 
 
-@pytest.mark.unit
+@pytest.mark.integration
 class TestSparkDataFrame:
     """Tests for spark dataframe construction."""
 
