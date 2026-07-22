@@ -1,0 +1,102 @@
+# ============================================================================
+# AEF-BNG Databricks Asset Bundle — Serverless
+# ============================================================================
+#
+# Uses serverless compute — no cluster startup time, auto-scales.
+# Databricks manages the infrastructure.
+#
+# Limitations:
+#   - Cannot set spark.task.cpus or most spark_conf values
+#   - No init scripts
+#   - Libraries must be specified in `environments`, not `libraries`
+#   - Requires UC permissions for the serverless identity
+#
+# Prerequisites:
+#   - Serverless compute enabled on your workspace
+#   - Unity Catalog serverless permissions for the job-running identity,
+#     see: https://learn.microsoft.com/en-us/azure/databricks/security/network/serverless-network-security/serverless-private-link
+#   - The aef-bng wheel + its dependencies (rasterio etc.) must install
+#     cleanly from PyPI manylinux wheels (no source compilation)
+#
+# Setup:
+#   1. Copy this file to `databricks.yml`
+#   2. Fill in your workspace URL, catalog, schema, table
+#
+# Usage:
+#   databricks bundle deploy -t dev
+#   databricks bundle run aef_bng_pipeline -t dev
+#   databricks bundle run aef_bng_pipeline -t dev \
+#       --params bounds=508848,163362,553002,196746 \
+#       --params years=2024,2025 \
+#       --params "table_name=\`your-catalog\`.schema.table"
+#
+# ============================================================================
+
+bundle:
+  name: aef-bng-serverless
+
+variables:
+  catalog:
+    description: "Unity Catalog name (use backticks for special characters)"
+    default: "<your-catalog>"
+  schema:
+    description: "Schema within the catalog"
+    default: "data"
+  table:
+    description: "Delta table name for output"
+    default: "aef_embeddings"
+
+artifacts:
+  aef_bng_wheel:
+    type: whl
+    build: uv build --wheel
+    path: .
+
+resources:
+  jobs:
+    aef_bng_pipeline:
+      name: "${bundle.target}-aef-bng-pipeline-serverless"
+
+      parameters:
+        - name: bounds
+          default: "0,0,700000,1300000"
+        - name: years
+          default: "2025"
+        - name: table_name
+          default: "${var.catalog}.${var.schema}.${var.table}"
+        - name: resampling
+          default: "nearest"
+
+      tasks:
+        - task_key: aef_bng_process_embeddings
+          python_wheel_task:
+            package_name: aef_bng
+            entry_point: aef-bng
+            parameters:
+              - "spark-run"
+              - "--bounds={{job.parameters.bounds}}"
+              - "--years={{job.parameters.years}}"
+              - "--table-name={{job.parameters.table_name}}"
+              - "--resampling={{job.parameters.resampling}}"
+          environment_key: aef_bng_env
+
+      environments:
+        - environment_key: aef_bng_env
+          spec:
+            environment_version: "1"
+            dependencies:
+              - ./dist/*.whl
+
+targets:
+  dev:
+    mode: development
+    default: true
+    workspace:
+      host: <your-databricks-workspace-url>
+
+  ## Production:
+  # prod:
+  #   workspace:
+  #     host: <your-prod-workspace-url>
+  #   variables:
+  #     catalog: "<your-prod-catalog>"

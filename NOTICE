@@ -1,0 +1,22 @@
+aef-bng
+Copyright (c) Crown Copyright 2025-2026
+Ministry of Housing, Communities and Local Government
+
+Licensed under the Open Government Licence v3.0.
+<http://www.nationalarchives.gov.uk/doc/open-government-licence/version/3/>
+
+This project incorporates approaches and design patterns from:
+
+  aef-loader (<https://github.com/jakenotjay/aef-loader>)
+  Copyright Jake Wilkins
+  Licensed under the Apache License, Version 2.0
+
+  Specifically, the COG reading architecture (obstore-based S3 access, async
+  tile reading, affine transform extraction) in this project was inspired by aef-loader's reader
+  implementation.
+
+  You may obtain a copy of the Apache License at:
+  <http://www.apache.org/licenses/LICENSE-2.0>
+
+The AlphaEarth Foundations (AEF) satellite embedding dataset is produced by
+Google and Google DeepMind and is licensed under CC-BY 4.0.

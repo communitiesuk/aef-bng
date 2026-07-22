@@ -1,0 +1,127 @@
+# ============================================================================
+# AEF-BNG Databricks Asset Bundle — Dedicated Job Cluster
+# ============================================================================
+#
+# Uses a dedicated job cluster that starts when the job runs and terminates
+# after. Full control over Spark config, init scripts, and node types.
+#
+# Setup:
+#   1. Copy this file to `databricks.yml`
+#   2. Fill in your workspace URL, catalog, schema, table
+#   3. Adjust node_type_id and max_workers for your workload
+#
+# Usage:
+#   databricks bundle deploy -t dev
+#   databricks bundle run aef_bng_pipeline -t dev
+#   databricks bundle run aef_bng_pipeline -t dev \
+#       --params bounds=minx,miny,maxx,maxy \
+#       --params years=2017,2021,2025 \
+#       --params "table_name=`your-catalog`.schema.table"
+#
+# ============================================================================
+
+bundle:
+  name: aef-bng
+
+variables:
+  catalog:
+    description: "Unity Catalog name (use backticks for special characters)"
+    default: "<your-catalog>"
+  schema:
+    description: "Schema within the catalog"
+    default: "<your-schema>"
+  table:
+    description: "Delta table name for output"
+    default: "<your-table>"
+
+artifacts:
+  aef_bng_wheel:
+    type: whl
+    build: uv build --wheel
+    path: .
+
+resources:
+  jobs:
+    aef_bng_pipeline:
+      name: "${bundle.target}-aef-bng-pipeline"
+
+      parameters:
+        - name: bounds
+        - name: years
+        - name: table_name
+          default: "${var.catalog}.${var.schema}.${var.table}"
+        - name: resampling
+          default: "nearest"
+
+      job_clusters:
+        - job_cluster_key: aef_bng_pipeline_cluster
+          new_cluster:
+            # --- Runtime ---
+            spark_version: "17.3.x-scala2.13"  # DBR 17.3 LTS
+            runtime_engine: PHOTON
+            data_security_mode: SINGLE_USER
+
+            # --- Compute (adjust for your workload) ---
+            # Standard_DS4_v2: 8 cores, 28GB (Azure)
+            # For AWS: i3.2xlarge or similar
+            node_type_id: Standard_DS4_v2
+            autoscale:
+              min_workers: 1
+              max_workers: 10
+
+            # --- Azure-specific (remove for AWS/GCP) ---
+            azure_attributes:
+              availability: SPOT_WITH_FALLBACK_AZURE
+
+            # --- Spark configuration ---
+            spark_conf:
+              spark.task.cpus: "1"
+              spark.sql.adaptive.enabled: "true"
+              spark.databricks.delta.optimizeWrite.enabled: "true"
+              spark.databricks.delta.autoCompact.enabled: "true"
+              spark.sql.execution.arrow.pyspark.enabled: "true"
+              spark.sql.execution.arrow.maxRecordsPerBatch: "10000"
+              spark.databricks.io.cache.enabled: "true"
+
+      tasks:
+        - task_key: aef_bng_process_embeddings
+          job_cluster_key: aef_bng_pipeline_cluster
+          python_wheel_task:
+            package_name: aef_bng
+            entry_point: aef-bng
+            parameters:
+              - "spark-run"
+              - "--bounds={{job.parameters.bounds}}"
+              - "--years={{job.parameters.years}}"
+              - "--table-name={{job.parameters.table_name}}"
+              - "--resampling={{job.parameters.resampling}}"
+          libraries:
+            - whl: ./dist/*.whl
+
+targets:
+  dev:
+    mode: development
+    default: true
+    workspace:
+      host: <your-databricks-workspace-url>
+
+## Use an existing interactive cluster:
+# targets:
+#   dev:
+#     mode: development
+#     workspace:
+#       host: <your-databricks-workspace-url>
+#     resources:
+#       jobs:
+#         aef_bng_pipeline:
+#           tasks:
+#             - task_key: aef_bng_process_embeddings
+#               existing_cluster_id: "<your-cluster-id>"
+#               job_cluster_key: null
+
+  ## Production:
+  # prod:
+  #   workspace:
+  #     host: <your-prod-workspace-url>
+  #   variables:
+  #     catalog: "<your-prod-catalog>"

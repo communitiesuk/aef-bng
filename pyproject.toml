@@ -1,0 +1,151 @@
+[project]
+name = "aef-bng"
+version = "0.1.0"
+description = "AEF embeddings reprojected to British National Grid as GeoParquet or Delta Tables."
+authors = [{ name = "Jordan Pinder" }]
+readme = "README.md"
+license = { text = "OGL-UK-3.0" }
+requires-python = "==3.12.*"
+dependencies = [
+    "async-geotiff>=0.4.0",
+    "click>=8.0",
+    "geoarrow-pyarrow>=0.2.0",
+    "geopandas>=0.14.0",
+    "numpy>=1.24.0",
+    "obstore>=0.4.0",
+    "osbng>=0.5.0",
+    "pyarrow>=15.0.0",
+    "pydantic-settings>=2.14.1",
+    "pydantic>=2.13.4",
+    "pyproj>=3.6.0",
+    "rasterio>=1.4.0",
+    "tqdm>=4.60.0",
+]
+
+[dependency-groups]
+dev = [
+    "coverage>=7.8.0",
+    "hypothesis>=6.152.1",
+    "ipykernel>=7.2.0",
+    "nox>=2025.5.1",
+    "pre-commit>=4.2.0",
+    "pyrefly>=0.61.0",
+    "pytest-asyncio>=0.23.0",
+    "pytest-cov>=7.1.0",
+    "pytest>=8.0.0",
+    "ruff>=0.12.0",
+    "uv-sort>=0.7.0",
+]
+docs = [
+    "mkdocs-material==9.7.*",
+    "mkdocs==1.6.*",
+    "mkdocstrings[python]>=0.25,<1.0",
+]
+
+[project.optional-dependencies]
+spark = ["databricks-connect==18.2"]
+
+
+
+[project.scripts]
+aef-bng = "aef_bng.cli:entrypoint"
+
+
+[project.urls]
+Repository = "https://github.com/jordanp-dluhc/aef-bng"
+
+[tool.uv]
+managed = true
+exclude-newer = "2026-05-29T02:07:43Z"
+
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["aef_bng"]
+
+[tool.setuptools]
+py-modules = ["aef_bng"]
+
+[tool.ruff]
+line-length = 100
+indent-width = 4
+fix = true
+extend-exclude = ["notebooks", "*.ipynb"]
+
+[tool.ruff.lint]
+select = [
+    # flake8-2020
+    "YTT",
+    # flake8-bandit
+    "S",
+    # flake8-bugbear
+    "B",
+    # flake8-builtins
+    "A",
+    # flake8-comprehensions
+    "C4",
+    # flake8-debugger
+    "T10",
+    # flake8-simplify
+    "SIM",
+    # isort
+    "I",
+    # mccabe
+    "C90",
+    # pycodestyle
+    "E",
+    "W",
+    # pyflakes
+    "F",
+    # pygrep-hooks
+    "PGH",
+    # pyupgrade
+    "UP",
+    # ruff
+    "RUF",
+    # tryceratops
+    "TRY",
+]
+ignore = [
+    # DoNotAssignLambda
+    "E731",
+    "PLR0913",
+    # Long exception messages are acceptable for validation errors
+    "TRY003",
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**/*.py" = [
+    # assert is standard in pytest
+    "S101",
+]
+
+[tool.ruff.lint.pydocstyle]
+convention = "google"
+
+[tool.ruff.lint.isort]
+known-first-party = ["aef_bng"]
+
+known-third-party = ["databricks", "geopandas", "pyspark", "sedona"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = [
+    "unit: unit tests (no network)",
+    "integration: integration tests (requires network)",
+]
+asyncio_mode = "auto"
+
+[tool.coverage.run]
+branch = true
+source = ["aef_bng"]
+
+[tool.coverage.report]
+show_missing = true
+
+[tool.pyrefly]
+project-includes = ["aef_bng"]
+python-version = "3.12"
