@@ -1,20 +1,24 @@
-<div style="padding: 15px; border-radius: 4px;">
-    <strong>⚠️ IMPORTANT</strong>
-</div>
-
-> This repository has been archived. Development continues at [communitiesuk/aef-bng](https://github.com/communitiesuk/aef-bng).
-
 # aef-bng
 
-Reproject [AlphaEarth Foundation](https://deepmind.google/blog/alphaearth-foundations-helps-map-our-planet-in-unprecedented-detail/) satellite embeddings to the British National Grid (EPSG:27700) on Databricks.
+Reproject [AlphaEarth Foundation](https://deepmind.google/blog/alphaearth-foundations-helps-map-our-planet-in-unprecedented-detail/)
+satellite embeddings to the British National Grid (EPSG:27700) on Databricks.
 
 ## Overview
 
-`aef-bng` takes Google DeepMind's AEF 10m-resolution satellite embeddings (stored as Cloud Optimised GeoTIFFs in UTM projection on [Source Cooperative](https://source.coop/repositories/tge-labs/aef)) and reprojects them to the British National Grid.
+`aef-bng` takes Google DeepMind's AEF 10m-resolution satellite embeddings (stored as Cloud Optimised
+GeoTIFFs in UTM projection on [Source Cooperative](https://source.coop/repositories/tge-labs/aef))
+and reprojects them to the British National Grid.
 
-The output is a Unity Catalog Delta table with 64 int8 embedding bands per 10m pixel, indexed by BNG grid reference.
+The output is a Unity Catalog Delta table with 64 int8 embedding bands per 10m pixel, indexed by BNG
+grid reference and ready for downstream ML tasks.
 
-It was developed as part of the Ministry of Housing, Communities and Local Government's (MHCLG) AAAI lab. The pipeline has been open-sourced in case it is useful for other Databricks users working with AlphaEarth data.
+It was developed as part of the Ministry of Housing, Communities and Local Government's (MHCLG) AAAI
+lab to predict the potential of brownfield land - you can
+[read more](https://mhclgdigital.blog.gov.uk/2026/07/16/from-pixels-to-policy-the-potential-of-geospatial-embeddings-for-mhclg/)
+about the project.
+
+The pipeline has been open-sourced in case it is useful for other Databricks users working with
+AlphaEarth data in a vector format using Databricks Spatial functions.
 
 ## Architecture
 
