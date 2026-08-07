@@ -113,7 +113,7 @@ class AEFBNGIndex:
             year: The year to filter tiles for.
 
         Returns:
-            List of dicts with keys: path, crs, year — sorted by path.
+            List of dicts with keys: path, crs, year - sorted by path.
         """
         if self._gdf is None:
             raise RuntimeError("Index not loaded. Call load_for_bounds() first.")
@@ -125,7 +125,7 @@ class AEFBNGIndex:
         spatial_mask = gdf.geometry.intersects(bbox_geom)
         filtered = gdf[spatial_mask]
 
-        # temporal filter — extract year from datetime column
+        # temporal filter - extract year from datetime column
         if "datetime" in filtered.columns:
             filtered = filtered[filtered["datetime"].dt.year == year]  # type: ignore[union-attr]
         elif "year" in filtered.columns:

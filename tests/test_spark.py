@@ -1,4 +1,4 @@
-"""Tests for aef_bng.spark — pure functions only, no Spark session required."""
+"""Tests for aef_bng.spark - pure functions only, no Spark session required."""
 
 from __future__ import annotations
 
@@ -65,7 +65,7 @@ class TestEmptyBatch:
         assert "geometry_wkb" in batch.schema.names
 
 
-@pytest.mark.unit
+@pytest.mark.integration
 class TestSparkDataFrame:
     """Tests for spark dataframe construction."""
 

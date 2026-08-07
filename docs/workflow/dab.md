@@ -18,7 +18,7 @@ cp databricks.template.serverless.yml databricks.yml
 # 3. Deploy
 databricks bundle deploy -t dev
 
-# 4. Run (boundary params optional — omit for unfiltered ingestion)
+# 4. Run (boundary params optional - omit for unfiltered ingestion)
 databricks bundle run aef_bng_pipeline -t dev \
     --params bounds=520830,170402,542137,187507 \
     --params years=2024,2025 \

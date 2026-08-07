@@ -25,7 +25,7 @@ class ChunkSpec:
         bng_10km_ref: 10km BNG grid reference string (e.g. "SU14").
         bounds_bng: BNG bounding box (minx, miny, maxx, maxy) in EPSG:27700.
         bounds_wgs84: Same bounds transformed to WGS84 (EPSG:4326).
-        shape: Pixel dimensions (rows, cols) — always (1000, 1000) for 10km at 10m.
+        shape: Pixel dimensions (rows, cols) - always (1000, 1000) for 10km at 10m.
         transform: Affine transform for this chunk's raster grid.
     """
 

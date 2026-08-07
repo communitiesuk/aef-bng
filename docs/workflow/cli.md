@@ -16,7 +16,7 @@ aef-bng spark-run \
 ```
 
 Omit `--boundary-path` (or pass an empty string) to ingest everything in the
-bounds — see [Boundary filtering](#boundary-filtering) below.
+bounds - see [Boundary filtering](#boundary-filtering) below.
 
 ## Parameters
 

@@ -81,7 +81,7 @@ config = AEFBNGConfig(
     years=[2024, 2025],
     bounds=(520830, 170402, 542137, 187507),  # London
     table_name="catalog.schema.aef_embeddings",
-    # Optional spatial filter — omit both for unfiltered ingestion:
+    # Optional spatial filter - omit both for unfiltered ingestion:
     boundary_path="/Volumes/catalog/schema/raw/boundaries/countries/Countries_December_2025_Boundaries_UK_BFE.parquet",
     boundary_query="CTRY25NM in ['England', 'Scotland', 'Wales']",
 )
