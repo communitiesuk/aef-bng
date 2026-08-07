@@ -1,5 +1,5 @@
 # ============================================================================
-# AEF-BNG Databricks Asset Bundle — Dedicated Job Cluster
+# AEF-BNG Databricks Asset Bundle - Dedicated Job Cluster
 # ============================================================================
 #
 # Uses a dedicated job cluster that starts when the job runs and terminates
@@ -52,12 +52,20 @@ resources:
           default: "${var.catalog}.${var.schema}.${var.table}"
         - name: resampling
           default: "nearest"
+        # Optional spatial ingest filter: OGR-readable boundary file (empty = disabled).
+        # See docs/workflow/cli.md for the GB (ONS BFE) download example.
+        - name: boundary_path
+          default: ""
+        - name: boundary_query
+          default: ""
+        - name: boundary_buffer_m
+          default: "0"
 
       job_clusters:
         - job_cluster_key: aef_bng_pipeline_cluster
           new_cluster:
             # --- Runtime ---
-            spark_version: "17.3.x-scala2.13"  # DBR 17.3 LTS
+            spark_version: "17.3.x-scala2.13" # DBR 17.3 LTS
             runtime_engine: PHOTON
             data_security_mode: SINGLE_USER
 
@@ -95,6 +103,9 @@ resources:
               - "--years={{job.parameters.years}}"
               - "--table-name={{job.parameters.table_name}}"
               - "--resampling={{job.parameters.resampling}}"
+              - "--boundary-path={{job.parameters.boundary_path}}"
+              - "--boundary-query={{job.parameters.boundary_query}}"
+              - "--boundary-buffer-m={{job.parameters.boundary_buffer_m}}"
           libraries:
             - whl: ./dist/*.whl
 
@@ -119,9 +130,9 @@ targets:
 #               existing_cluster_id: "<your-cluster-id>"
 #               job_cluster_key: null
 
-  ## Production:
-  # prod:
-  #   workspace:
-  #     host: <your-prod-workspace-url>
-  #   variables:
-  #     catalog: "<your-prod-catalog>"
+## Production:
+# prod:
+#   workspace:
+#     host: <your-prod-workspace-url>
+#   variables:
+#     catalog: "<your-prod-catalog>"

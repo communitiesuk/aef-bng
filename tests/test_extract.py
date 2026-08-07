@@ -271,3 +271,65 @@ class TestExtractPixelsSpark:
         table = extract_pixels_spark(data, chunk, 2024)
         assert "easting" not in table.column_names
         assert "northing" not in table.column_names
+
+
+@pytest.mark.unit
+class TestBoundaryMask:
+    """Tests for boundary-mask filtering in pixel extraction."""
+
+    @staticmethod
+    def _wkb(geometry: object) -> bytes:
+        import shapely
+
+        return shapely.to_wkb(geometry)
+
+    def test_mask_restricts_pixels(self, tq38_chunk: ChunkSpec) -> None:
+        """Only pixels whose 10m cell intersects the mask geometry are kept.
+
+        Mask covers columns 0-499 fully and half of column 500; with
+        ``all_touched`` semantics that keeps 501 columns x 1000 rows.
+        """
+        from shapely.geometry import box
+
+        data = np.ones((AEF_NUM_BANDS, 1000, 1000), dtype=np.int8)
+        mask = self._wkb(box(530_000, 180_000, 535_005, 190_000))
+        table = extract_pixels_spark(data, tq38_chunk, 2024, mask_wkb=mask)
+        assert table.num_rows == 501 * 1000
+
+    def test_mask_and_nodata_combine(self, tq38_chunk: ChunkSpec) -> None:
+        """Mask ANDs with the nodata mask rather than replacing it."""
+        from shapely.geometry import box
+
+        data = np.full((AEF_NUM_BANDS, 1000, 1000), AEF_NODATA, dtype=np.int8)
+        data[:, :10, :10] = 1  # 100 valid pixels in the top-left (north-west) corner
+        # Mask covers the western half - all 100 valid pixels are inside it.
+        mask = self._wkb(box(530_000, 180_000, 535_000, 190_000))
+        table = extract_pixels_spark(data, tq38_chunk, 2024, mask_wkb=mask)
+        assert table.num_rows == 100
+
+    def test_mask_outside_data_returns_empty(self, tq38_chunk: ChunkSpec) -> None:
+        """A mask that excludes every valid pixel yields an empty table."""
+        from shapely.geometry import box
+
+        data = np.full((AEF_NUM_BANDS, 1000, 1000), AEF_NODATA, dtype=np.int8)
+        data[:, :10, :10] = 1  # valid pixels only in the north-west corner
+        # Mask covers the far south-east corner only.
+        mask = self._wkb(box(539_000, 180_000, 540_000, 181_000))
+        table = extract_pixels_spark(data, tq38_chunk, 2024, mask_wkb=mask)
+        assert table.num_rows == 0
+
+    def test_no_mask_keeps_all_valid(self, tq38_chunk: ChunkSpec) -> None:
+        """mask_wkb=None preserves the unfiltered behaviour."""
+        data = np.ones((AEF_NUM_BANDS, 1000, 1000), dtype=np.int8)
+        table = extract_pixels(data, tq38_chunk, 2024, mask_wkb=None)
+        assert table.num_rows == 1_000_000
+
+    def test_local_and_spark_paths_agree(self, tq38_chunk: ChunkSpec) -> None:
+        """extract_pixels and extract_pixels_spark keep the same masked refs."""
+        from shapely.geometry import box
+
+        data = np.ones((AEF_NUM_BANDS, 1000, 1000), dtype=np.int8)
+        mask = self._wkb(box(530_000, 180_000, 532_000, 182_000))
+        local = extract_pixels(data, tq38_chunk, 2024, mask_wkb=mask)
+        spark = extract_pixels_spark(data, tq38_chunk, 2024, mask_wkb=mask)
+        assert local.column("bng_ref").to_pylist() == spark.column("bng_ref").to_pylist()

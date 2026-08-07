@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 
 from aef_bng.constants import BNG_BOUNDS, CHUNK_SIZE
@@ -20,6 +21,13 @@ class AEFBNGConfig:
         max_workers: Maximum concurrent workers for local processing.
         table_name: Unity Catalog table name (e.g. "my_catalog.schema.aef_bng").
             When set, Spark writes to this table instead of output_path.
+        boundary_path: Optional OGR-readable vector file (GeoJSON, GPKG, ...) used to
+            spatially filter ingestion: only pixels whose 10m cell intersects the
+            boundary are kept. None (default) disables filtering entirely.
+        boundary_query: Optional pandas-style attribute filter applied to the boundary
+            file, e.g. ``"CTRY25NM in ['England', 'Scotland', 'Wales']"``.
+        boundary_buffer_m: Optional outward buffer in metres applied to the dissolved
+            boundary geometry.
     """
 
     years: list[int]
@@ -29,6 +37,9 @@ class AEFBNGConfig:
     resampling: str = "nearest"
     max_workers: int = 4
     table_name: str | None = None
+    boundary_path: str | None = None
+    boundary_query: str | None = None
+    boundary_buffer_m: float = 0.0
 
     def __post_init__(self) -> None:
         """Validate configuration values."""
@@ -41,3 +52,7 @@ class AEFBNGConfig:
         minx, miny, maxx, maxy = self.bounds
         if minx >= maxx or miny >= maxy:
             raise ValueError("Invalid bounds: min must be less than max")
+        if not math.isfinite(self.boundary_buffer_m) or self.boundary_buffer_m < 0:
+            raise ValueError("boundary_buffer_m must be finite and >= 0")
+        if self.boundary_path is None and (self.boundary_query or self.boundary_buffer_m > 0):
+            raise ValueError("boundary_query/boundary_buffer_m require boundary_path")

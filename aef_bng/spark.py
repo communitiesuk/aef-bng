@@ -78,6 +78,7 @@ async def _process_chunk_async(
     year: int,
     index: AEFBNGIndex,
     resampling: str,
+    mask_wkb: bytes | None = None,
 ) -> pa.Table | None:
     """Process a single chunk (async). Called within a shared event loop per partition.
 
@@ -88,6 +89,8 @@ async def _process_chunk_async(
         year: Year to process.
         index: Loaded AEF tile index.
         resampling: Resampling method name.
+        mask_wkb: Boundary geometry clipped to this chunk (WKB), or None when the
+            chunk is fully inside the boundary / no boundary filtering is active.
 
     Returns:
         Arrow table with (bng_ref, year, embedding, geometry_wkb) or None if no data.
@@ -134,7 +137,7 @@ async def _process_chunk_async(
     if np.all(merged == AEF_NODATA):
         return None
 
-    return extract_pixels_spark(merged, chunk, year)
+    return extract_pixels_spark(merged, chunk, year, mask_wkb=mask_wkb)
 
 
 def _make_process_partition(  # noqa: C901
@@ -144,7 +147,7 @@ def _make_process_partition(  # noqa: C901
     """Create the partition processing function with closure-captured state.
 
     Returns the function to pass to ``mapInArrow``. The index bytes and resampling
-    string are captured in the closure and serialised with the UDF — compatible with
+    string are captured in the closure and serialised with the UDF - compatible with
     serverless, Spark Connect, and classic SparkSession.
 
     The index is deserialised once per partition (not per row), amortising the cost.
@@ -168,7 +171,7 @@ def _make_process_partition(  # noqa: C901
         schema = _output_schema()
 
         # Collect all chunk specs from all batches in this partition
-        chunk_rows: list[tuple[str, tuple, tuple, int]] = []
+        chunk_rows: list[tuple[str, tuple, tuple, int, bytes | None]] = []
         for batch in batch_iter:
             bng_refs = batch.column("bng_10km_ref").to_pylist()
             bounds_bng_0 = batch.column("bounds_bng_0").to_pylist()
@@ -180,6 +183,7 @@ def _make_process_partition(  # noqa: C901
             bounds_wgs84_2 = batch.column("bounds_wgs84_2").to_pylist()
             bounds_wgs84_3 = batch.column("bounds_wgs84_3").to_pylist()
             years = batch.column("year").to_pylist()
+            mask_wkbs = batch.column("mask_wkb").to_pylist()
 
             for i in range(batch.num_rows):
                 chunk_rows.append(
@@ -193,6 +197,7 @@ def _make_process_partition(  # noqa: C901
                             bounds_wgs84_3[i],
                         ),
                         years[i],
+                        mask_wkbs[i],
                     )
                 )
 
@@ -204,7 +209,7 @@ def _make_process_partition(  # noqa: C901
         async def _process_all() -> list[pa.Table]:
             tables: list[pa.Table] = []
             failed = 0
-            for bng_ref, bounds_bng, bounds_wgs84, year in chunk_rows:
+            for bng_ref, bounds_bng, bounds_wgs84, year, mask_wkb in chunk_rows:
                 try:
                     result = await _process_chunk_async(
                         bng_10km_ref=bng_ref,
@@ -213,6 +218,7 @@ def _make_process_partition(  # noqa: C901
                         year=year,
                         index=index,
                         resampling=resampling,
+                        mask_wkb=mask_wkb,
                     )
                     if result is not None and result.num_rows > 0:
                         tables.append(result)
@@ -248,7 +254,11 @@ def _build_chunks_dataframe(
 ) -> DataFrame:
     """Build a Spark DataFrame with one row per (chunk, year) combination.
 
-    Uses flat columns for Arrow compatibility — no nested structs or arrays.
+    Uses flat columns for Arrow compatibility - no nested structs or arrays.
+
+    When ``config.boundary_path`` is set, chunks outside the boundary are dropped
+    here - before any S3 read - and partially-covered chunks carry the boundary
+    clipped to the chunk in the ``mask_wkb`` column (NULL for fully-inside chunks).
 
     Args:
         spark: Active SparkSession.
@@ -258,6 +268,7 @@ def _build_chunks_dataframe(
         Spark DataFrame with the flat input schema.
     """
     from pyspark.sql.types import (  # type: ignore  # noqa: PGH003
+        BinaryType,
         DoubleType,
         IntegerType,
         StringType,
@@ -267,9 +278,10 @@ def _build_chunks_dataframe(
 
     grid = BNGOutputGrid(config.bounds, config.chunk_size)
     chunks = grid.enumerate_chunks()
+    chunk_masks = _classify_chunks(chunks, config)
 
     rows = []
-    for chunk in chunks:
+    for chunk, mask_wkb in chunk_masks:
         for year in config.years:
             rows.append(
                 (
@@ -283,6 +295,7 @@ def _build_chunks_dataframe(
                     chunk.bounds_wgs84[2],
                     chunk.bounds_wgs84[3],
                     year,
+                    mask_wkb,
                 )
             )
 
@@ -298,10 +311,64 @@ def _build_chunks_dataframe(
             StructField("bounds_wgs84_2", DoubleType(), False),
             StructField("bounds_wgs84_3", DoubleType(), False),
             StructField("year", IntegerType(), False),
+            StructField("mask_wkb", BinaryType(), True),
         ]
     )
 
     return spark.createDataFrame(rows, schema=input_schema)
+
+
+def _classify_chunks(
+    chunks: list[ChunkSpec],
+    config: AEFBNGConfig,
+) -> list[tuple[ChunkSpec, bytes | None]]:
+    """Apply optional boundary filtering to the enumerated chunks.
+
+    Without ``config.boundary_path`` every chunk is kept unmasked (current
+    behaviour). With it, OUTSIDE chunks are dropped, FULL chunks are kept
+    unmasked, and PARTIAL chunks carry their clipped boundary as WKB.
+
+    Args:
+        chunks: Enumerated chunks from :class:`BNGOutputGrid`.
+        config: Pipeline configuration.
+
+    Returns:
+        List of (chunk, mask_wkb-or-None) for the chunks to process.
+    """
+    if config.boundary_path is None:
+        return [(chunk, None) for chunk in chunks]
+
+    import shapely
+
+    from aef_bng.boundary import Coverage, classify_chunk, load_boundary
+
+    boundary = load_boundary(
+        config.boundary_path,
+        query=config.boundary_query,
+        buffer_m=config.boundary_buffer_m,
+    )
+    shapely.prepare(boundary)
+
+    kept: list[tuple[ChunkSpec, bytes | None]] = []
+    n_full = n_partial = 0
+    for chunk in chunks:
+        coverage, mask_wkb = classify_chunk(chunk.bounds_bng, boundary)
+        if coverage is Coverage.OUTSIDE:
+            continue
+        if coverage is Coverage.FULL:
+            n_full += 1
+        else:
+            n_partial += 1
+        kept.append((chunk, mask_wkb))
+
+    logger.info(
+        "Boundary filter: %d full + %d partial chunks kept, %d dropped of %d",
+        n_full,
+        n_partial,
+        len(chunks) - len(kept),
+        len(chunks),
+    )
+    return kept
 
 
 def process_with_spark(config: AEFBNGConfig) -> None:
@@ -332,8 +399,8 @@ def process_with_spark(config: AEFBNGConfig) -> None:
     t0 = time.perf_counter()
     chunks_df = _build_chunks_dataframe(spark, config)
 
-    grid = BNGOutputGrid(config.bounds, config.chunk_size)
-    num_tasks = len(grid.enumerate_chunks()) * len(config.years)
+    # Count actual rows (boundary filtering may have dropped chunks) - tiny DataFrame.
+    num_tasks = chunks_df.count()
     # Each chunk is ~64MB in memory (64 bands x 1000x1000 int8) + reprojection overhead.
     # Target 2-4 chunks per partition to balance parallelism vs memory on DS4_v2 (28GB, 8 cores).
     # With autoscaling (1-10 workers x 8 cores = 8-80 slots), use ~num_tasks/3 partitions

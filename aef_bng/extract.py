@@ -53,15 +53,44 @@ def _get_prefix(easting: int, northing: int) -> str:
     return PREFIXES[northing // 100_000][easting // 100_000]
 
 
+def _boundary_mask(mask_wkb: bytes, chunk: ChunkSpec) -> np.ndarray:
+    """Rasterise a clipped boundary geometry onto the chunk's pixel grid.
+
+    ``all_touched=True`` keeps every 10m cell the boundary overlaps at all
+    ("any overlap" semantics, matching ``ST_Intersects`` filtering downstream).
+
+    Args:
+        mask_wkb: WKB of the boundary clipped to this chunk (EPSG:27700 polygons).
+        chunk: The BNG chunk specification.
+
+    Returns:
+        Boolean array of ``chunk.shape``; True where the pixel is inside/touching.
+    """
+    import shapely.wkb
+    from rasterio.features import geometry_mask
+
+    geometry = shapely.wkb.loads(mask_wkb)
+    return geometry_mask(
+        [geometry],
+        out_shape=chunk.shape,
+        transform=chunk.transform,
+        invert=True,
+        all_touched=True,
+    )
+
+
 def _compute_pixel_data(
     data: np.ndarray,
     chunk: ChunkSpec,
+    mask_wkb: bytes | None = None,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, list[str], np.ndarray] | None:
     """Compute valid pixel coordinates, BNG references, and embeddings.
 
     Args:
         data: Reprojected array of shape (bands, rows, cols) int8.
         chunk: The BNG chunk specification.
+        mask_wkb: Optional boundary geometry (WKB, EPSG:27700) restricting output
+            to intersecting pixels. None keeps every non-nodata pixel.
 
     Returns:
         Tuple of (valid_eastings, valid_northings, valid_rows, valid_cols,
@@ -70,6 +99,8 @@ def _compute_pixel_data(
     rows, cols = chunk.shape
 
     valid_mask = ~np.all(data == AEF_NODATA, axis=0)
+    if mask_wkb is not None:
+        valid_mask &= _boundary_mask(mask_wkb, chunk)
     n_valid = int(valid_mask.sum())
 
     if n_valid == 0:
@@ -114,7 +145,7 @@ def _compute_pixel_data(
 def _wkb_boxes(eastings: np.ndarray, northings: np.ndarray) -> pa.Array:
     """Build WKB Polygon bytes for n 10m x 10m BNG cell boxes.
 
-    Constructed entirely in numpy — no shapely, no per-row Python loops.
+    Constructed entirely in numpy - no shapely, no per-row Python loops.
     Each polygon is a fixed 93-byte little-endian WKB:
     - 13-byte header (byte order, geometry type, ring count, point count)
     - 5 x 2 x float64 coordinate pairs closing the rectangle
@@ -157,7 +188,12 @@ def _wkb_boxes(eastings: np.ndarray, northings: np.ndarray) -> pa.Array:
     )
 
 
-def extract_pixels(data: np.ndarray, chunk: ChunkSpec, year: int) -> pa.Table:
+def extract_pixels(
+    data: np.ndarray,
+    chunk: ChunkSpec,
+    year: int,
+    mask_wkb: bytes | None = None,
+) -> pa.Table:
     """Extract valid pixels from a reprojected chunk as an Arrow table.
 
     Each embedding band is a separate int8 column (A00..A63).
@@ -167,11 +203,12 @@ def extract_pixels(data: np.ndarray, chunk: ChunkSpec, year: int) -> pa.Table:
         data: Reprojected array of shape (64, rows, cols) int8.
         chunk: The BNG chunk specification.
         year: Year of the AEF embeddings.
+        mask_wkb: Optional boundary geometry (WKB) restricting output pixels.
 
     Returns:
         Arrow table with columns: bng_ref, year, A00..A63, easting, northing.
     """
-    result = _compute_pixel_data(data, chunk)
+    result = _compute_pixel_data(data, chunk, mask_wkb)
     if result is None:
         return _empty_table()
 
@@ -196,6 +233,7 @@ def extract_pixels_spark(
     data: np.ndarray,
     chunk: ChunkSpec,
     year: int,
+    mask_wkb: bytes | None = None,
 ) -> pa.Table:
     """Extract valid pixels for the Spark/Unity Catalog path.
 
@@ -207,11 +245,12 @@ def extract_pixels_spark(
         data: Reprojected array of shape (64, rows, cols) int8.
         chunk: The BNG chunk specification.
         year: Year of the AEF embeddings.
+        mask_wkb: Optional boundary geometry (WKB) restricting output pixels.
 
     Returns:
         Arrow table with columns: bng_ref, year, A00..A63, geometry_wkb.
     """
-    result = _compute_pixel_data(data, chunk)
+    result = _compute_pixel_data(data, chunk, mask_wkb)
     if result is None:
         return _empty_table_spark()
 
