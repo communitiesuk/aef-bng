@@ -1,20 +1,24 @@
-<div style="padding: 15px; border-radius: 4px;">
-    <strong>⚠️ IMPORTANT</strong>
-</div>
-
-> This repository has been archived. Development continues at [communitiesuk/aef-bng](https://github.com/communitiesuk/aef-bng).
-
 # aef-bng
 
-Reproject [AlphaEarth Foundation](https://deepmind.google/blog/alphaearth-foundations-helps-map-our-planet-in-unprecedented-detail/) satellite embeddings to the British National Grid (EPSG:27700) on Databricks.
+Reproject [AlphaEarth Foundation](https://deepmind.google/blog/alphaearth-foundations-helps-map-our-planet-in-unprecedented-detail/)
+satellite embeddings to the British National Grid (EPSG:27700) on Databricks.
 
 ## Overview
 
-`aef-bng` takes Google DeepMind's AEF 10m-resolution satellite embeddings (stored as Cloud Optimised GeoTIFFs in UTM projection on [Source Cooperative](https://source.coop/repositories/tge-labs/aef)) and reprojects them to the British National Grid.
+`aef-bng` takes Google DeepMind's AEF 10m-resolution satellite embeddings (stored as Cloud Optimised
+GeoTIFFs in UTM projection on [Source Cooperative](https://source.coop/repositories/tge-labs/aef))
+and reprojects them to the British National Grid.
 
-The output is a Unity Catalog Delta table with 64 int8 embedding bands per 10m pixel, indexed by BNG grid reference.
+The output is a Unity Catalog Delta table with 64 int8 embedding bands per 10m pixel, indexed by BNG
+grid reference and ready for downstream ML tasks.
 
-It was developed as part of the Ministry of Housing, Communities and Local Government's (MHCLG) AAAI lab. The pipeline has been open-sourced in case it is useful for other Databricks users working with AlphaEarth data.
+It was developed as part of the Ministry of Housing, Communities and Local Government's (MHCLG) AAAI
+lab to predict the potential of brownfield land - you can
+[read more](https://mhclgdigital.blog.gov.uk/2026/07/16/from-pixels-to-policy-the-potential-of-geospatial-embeddings-for-mhclg/)
+about the project.
+
+The pipeline has been open-sourced in case it is useful for other Databricks users working with
+AlphaEarth data in a vector format using Databricks Spatial functions.
 
 ## Architecture
 
@@ -77,6 +81,9 @@ config = AEFBNGConfig(
     years=[2024, 2025],
     bounds=(520830, 170402, 542137, 187507),  # London
     table_name="catalog.schema.aef_embeddings",
+    # Optional spatial filter — omit both for unfiltered ingestion:
+    boundary_path="/Volumes/catalog/schema/raw/boundaries/countries/Countries_December_2025_Boundaries_UK_BFE.parquet",
+    boundary_query="CTRY25NM in ['England', 'Scotland', 'Wales']",
 )
 
 process_with_spark(config)
@@ -91,6 +98,16 @@ aef-bng spark-run \
   --table-name "catalog.schema.aef_embeddings"
 ```
 
+To spatially filter ingestion, add a boundary file (GeoParquet recommended; any
+OGR format accepted). For Great Britain - skipping sea, Ireland, and continental
+coast pixels - we recommend the ONS BFE (Extent of the Realm) countries; see
+`docs/workflow/cli.md`, which includes a download example:
+
+```bash
+  --boundary-path "/Volumes/.../Countries_December_2025_Boundaries_UK_BFE.parquet" \
+  --boundary-query "CTRY25NM in ['England', 'Scotland', 'Wales']"
+```
+
 ### Databricks Asset Bundle
 
 ```bash
@@ -99,13 +116,15 @@ databricks bundle deploy -t dev
 databricks bundle run aef_bng_pipeline -t dev \
     --params bounds=520830,170402,542137,187507 \
     --params years=2024,2025 \
-    --params table_name=catalog.schema.aef_embeddings
+    --params table_name=catalog.schema.aef_embeddings \
+    --params boundary_path=/Volumes/catalog/schema/raw/boundaries/countries/Countries_December_2025_Boundaries_UK_BFE.parquet \
+    --params "boundary_query=CTRY25NM in ['England', 'Scotland', 'Wales']"
 ```
 
 ## Output schema
 
 | Column | Type | Description |
-|--------|------|-------------|
+| -------- | ------ | ------------- |
 | `bng_ref` | string | 10-character BNG grid reference (10m cell) |
 | `year` | smallint | Year of the AEF embedding |
 | `A00`–`A63` | tinyint | 64 int8 embedding bands |
@@ -163,7 +182,7 @@ Contains public sector information licensed under the Open Government Licence v3
 
 ## Acknowledgements
 
-- [`aef-loader`](https://github.com/jakenotjay/aef-loader) by Jake Wilkins (Apache 2.0) — design patterns and inspiration. See [NOTICE](NOTICE) for details.
+- [`aef-loader`](https://github.com/jakenotjay/aef-loader) by Jake Wilkins (Apache 2.0) - design patterns and inspiration. See [NOTICE](NOTICE) for details.
 - The
 [AlphaEarth Foundations](https://deepmind.google/blog/alphaearth-foundations-helps-map-our-planet-in-unprecedented-detail/)
 Satellite Embedding dataset is produced by Google and Google DeepMind (CC-BY 4.0). Hosted on
