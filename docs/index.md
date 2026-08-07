@@ -1,6 +1,7 @@
 # aef-bng
 
-Reproject AlphaEarth Foundation (AEF) satellite embeddings to British National Grid on Databricks.
+Reproject [AlphaEarth Foundation](https://deepmind.google/blog/alphaearth-foundations-helps-map-our-planet-in-unprecedented-detail/)
+satellite embeddings to the British National Grid (EPSG:27700) on Databricks.
 
 <figure markdown="span">
     ![London example](assets/london-rgb-pca-composite.jpg)
@@ -9,9 +10,21 @@ Reproject AlphaEarth Foundation (AEF) satellite embeddings to British National G
 
 ## What is aef-bng?
 
-`aef-bng` takes Google DeepMind's [AlphaEarth Foundation](https://deepmind.google/models-and-capabilities/alpha-earth/) 10m-resolution satellite embeddings (stored as Cloud Optimised GeoTIFFs in UTM projection) and reprojects them to the British National Grid (EPSG:27700).
+`aef-bng` takes Google DeepMind's
+[AlphaEarth Foundation](https://source.coop/tge-labs/aef/)
+10m-resolution satellite embeddings (stored as Cloud Optimised GeoTIFFs in UTM projection) and
+reprojects them to the British National Grid (EPSG:27700).
 
-The output is a Delta table on Databricks with 64 embedding bands per 10m pixel, ready for downstream ML tasks.
+The output is a Unity Catalog Delta table with 64 int8 embedding bands per 10m pixel, indexed by BNG
+grid reference and ready for downstream ML tasks.
+
+It was developed as part of the Ministry of Housing, Communities and Local Government's (MHCLG) AAAI
+lab to predict the potential of brownfield land - you can
+[read more](https://mhclgdigital.blog.gov.uk/2026/07/16/from-pixels-to-policy-the-potential-of-geospatial-embeddings-for-mhclg/)
+about the project.
+
+The pipeline has been open-sourced in case it is useful for other Databricks users working with
+AlphaEarth data in a vector format using Databricks Spatial functions.
 
 ## Key Features
 

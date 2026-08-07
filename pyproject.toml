@@ -2,13 +2,16 @@
 name = "aef-bng"
 version = "0.1.0"
 description = "AEF embeddings reprojected to British National Grid as GeoParquet or Delta Tables."
-authors = [{ name = "Jordan Pinder" }]
+authors = [
+    { name = "Jordan Pinder", email = "Jordan.Pinder@communities.gov.uk" },
+]
 readme = "README.md"
 license = { text = "OGL-UK-3.0" }
 requires-python = "==3.12.*"
 dependencies = [
     "async-geotiff>=0.4.0",
     "click>=8.0",
+    "fsspec>=2024.1.0",
     "geoarrow-pyarrow>=0.2.0",
     "geopandas>=0.14.0",
     "numpy>=1.24.0",
@@ -44,7 +47,6 @@ docs = [
 
 [project.optional-dependencies]
 spark = ["databricks-connect==18.2"]
-
 
 
 [project.scripts]

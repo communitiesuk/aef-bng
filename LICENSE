@@ -1,7 +1,14 @@
 Open Government Licence v3.0
 
-Copyright (c) Crown Copyright 2025-2026
-Department for Levelling Up, Housing and Communities
+Copyright (c) 2026 Crown Copyright (Ministry of Housing, Communities and Local Government)
+
+Authors:
+
+- Jordan Pinder
+
+Acknowledgements:
+
+- [`aef-loader`](https://github.com/jakenotjay/aef-loader) by Jake Wilkins (Apache 2.0) - design patterns and inspiration. See [NOTICE](https://github.com/communitiesuk/aef-bng/blob/main/NOTICE) for details.
 
 You are encouraged to use and re-use the Information that is available under
 this licence freely and flexibly, with only a few conditions.
