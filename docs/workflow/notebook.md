@@ -85,12 +85,24 @@ process_with_spark(config)
 
 ## Apply liquid clustering
 
+The parent grid references derived at extract time (`grid_10km_ref`,
+`grid_1km_ref`) make good clustering keys for regional access - filtering or
+aggregating by square - because a 10km/1km square's cells are scattered through
+`bng_ref` string order (the ref interleaves easting and northing digits), so a
+square can never be expressed as a `bng_ref` range:
+
 ```python
-spark.sql(f"ALTER TABLE {TABLE_NAME} CLUSTER BY (year, bng_ref)")
+spark.sql(f"ALTER TABLE {TABLE_NAME} CLUSTER BY (year, grid_10km_ref, grid_1km_ref)")
 spark.sql(f"OPTIMIZE {TABLE_NAME}")
 spark.sql(f"ANALYZE TABLE {TABLE_NAME} COMPUTE STATISTICS")
 spark.sql(f"VACUUM {TABLE_NAME}")
 ```
+
+Prefer `CLUSTER BY (year, bng_ref)` instead if your dominant access is exact-ref
+point lookups or ref-keyed merges - narrow per-file `bng_ref` ranges prune those
+better. All four key columns sit ahead of the 64 band columns, inside the
+default 32-column Delta statistics window, so either choice has the file-level
+min/max stats it needs.
 
 ## Verify output
 
@@ -104,8 +116,8 @@ df.groupBy("year").count().orderBy("year").show()
 ## Spatial queries
 
 The `geometry` column supports Databricks spatial functions. Liquid clustering
-on `(year, bng_ref)` means queries filtering on these columns skip irrelevant
-files automatically.
+on the year and grid-reference columns means queries filtering on them skip
+irrelevant files automatically.
 
 ```python
 from pyspark.sql import functions as F

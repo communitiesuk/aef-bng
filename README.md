@@ -127,6 +127,8 @@ databricks bundle run aef_bng_pipeline -t dev \
 | -------- | ------ | ------------- |
 | `bng_ref` | string | 10-character BNG grid reference (10m cell) |
 | `year` | smallint | Year of the AEF embedding |
+| `grid_10km_ref` | string | 10km parent grid reference (e.g. `TQ38`) |
+| `grid_1km_ref` | string | 1km parent grid reference (e.g. `TQ3182`) |
 | `A00`–`A63` | tinyint | 64 int8 embedding bands |
 | `easting` | integer | BNG easting (metres) |
 | `northing` | integer | BNG northing (metres) |
