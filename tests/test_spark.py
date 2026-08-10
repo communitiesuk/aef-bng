@@ -20,6 +20,8 @@ class TestOutputSchema:
         names = schema.names
         assert "bng_ref" in names
         assert "year" in names
+        assert "grid_10km_ref" in names
+        assert "grid_1km_ref" in names
         assert "geometry_wkb" in names
         for name in AEF_BAND_NAMES:
             assert name in names
@@ -29,6 +31,8 @@ class TestOutputSchema:
         schema = _output_schema()
         assert schema.field("bng_ref").type == pa.string()
         assert schema.field("year").type == pa.int16()
+        assert schema.field("grid_10km_ref").type == pa.string()
+        assert schema.field("grid_1km_ref").type == pa.string()
         assert schema.field("A00").type == pa.int8()
         assert schema.field("A63").type == pa.int8()
         assert schema.field("geometry_wkb").type == pa.binary()
@@ -40,10 +44,9 @@ class TestOutputSchema:
         assert len(band_fields) == 64
 
     def test_field_order(self) -> None:
-        """bng_ref and year are first; geometry_wkb is last."""
+        """Key columns lead (inside the default 32-column Delta stats window); geometry is last."""
         schema = _output_schema()
-        assert schema.names[0] == "bng_ref"
-        assert schema.names[1] == "year"
+        assert schema.names[:4] == ["bng_ref", "year", "grid_10km_ref", "grid_1km_ref"]
         assert schema.names[-1] == "geometry_wkb"
 
 

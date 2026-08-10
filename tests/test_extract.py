@@ -152,6 +152,92 @@ class TestExtractPixels:
 
 
 @pytest.mark.unit
+class TestParentRefs:
+    """Tests for grid_10km_ref / grid_1km_ref derivation."""
+
+    def test_columns_present_in_both_paths(self, tq38_chunk: ChunkSpec) -> None:
+        """Both output paths include string parent-ref columns."""
+        data = np.ones((AEF_NUM_BANDS, 1000, 1000), dtype=np.int8)
+        for table in (
+            extract_pixels(data, tq38_chunk, 2024),
+            extract_pixels_spark(data, tq38_chunk, 2024),
+        ):
+            assert table.schema.field("grid_10km_ref").type == pa.string()
+            assert table.schema.field("grid_1km_ref").type == pa.string()
+
+    def test_parents_are_digit_picks_of_child(self, tq38_chunk: ChunkSpec) -> None:
+        """Parents take the leading digit(s) of each axis, not a string prefix."""
+        data = np.ones((AEF_NUM_BANDS, 1000, 1000), dtype=np.int8)
+        table = extract_pixels(data, tq38_chunk, 2024)
+        refs = table.column("bng_ref").to_pylist()
+        refs_10km = table.column("grid_10km_ref").to_pylist()
+        refs_1km = table.column("grid_1km_ref").to_pylist()
+        for ref, r10, r1 in list(zip(refs, refs_10km, refs_1km, strict=True))[::9973]:
+            assert r10 == ref[:3] + ref[6], f"{ref} -> {r10}"
+            assert r1 == ref[:4] + ref[6:8], f"{ref} -> {r1}"
+
+    def test_single_chunk_parent_cardinality(self, tq38_chunk: ChunkSpec) -> None:
+        """A full 10km chunk has one 10km parent and exactly 100 1km parents."""
+        data = np.ones((AEF_NUM_BANDS, 1000, 1000), dtype=np.int8)
+        table = extract_pixels(data, tq38_chunk, 2024)
+        assert set(table.column("grid_10km_ref").to_pylist()) == {"TQ38"}
+        assert len(set(table.column("grid_1km_ref").to_pylist())) == 100
+
+    def test_parent_refs_validated_against_osbng(self) -> None:
+        """Cross-check parent refs against osbng.indexing.xy_to_bng."""
+        try:
+            from osbng import xy_to_bng
+        except ImportError:
+            pytest.skip("osbng not installed")
+
+        chunk = ChunkSpec(
+            bng_10km_ref="SU14",
+            bounds_bng=(410_000, 140_000, 410_030, 140_030),
+            bounds_wgs84=(-1.5, 50.9, -1.49, 50.91),
+            shape=(3, 3),
+        )
+        data = np.ones((AEF_NUM_BANDS, 3, 3), dtype=np.int8)
+        table = extract_pixels(data, chunk, 2024)
+
+        # Top-left pixel: lower-left corner easting=410_000, northing=140_020
+        assert (
+            table.column("grid_10km_ref")[0].as_py()
+            == xy_to_bng(410_000, 140_020, 10_000).bng_ref_compact
+        )
+        assert (
+            table.column("grid_1km_ref")[0].as_py()
+            == xy_to_bng(410_000, 140_020, 1_000).bng_ref_compact
+        )
+
+    def test_multi_prefix_chunk_parents_follow_row_prefix(self) -> None:
+        """Parents stay consistent when a chunk spans two 100km squares."""
+        chunk = ChunkSpec(
+            bng_10km_ref="SS99",
+            bounds_bng=(299_950, 150_000, 300_050, 150_100),
+            bounds_wgs84=(-3.3, 50.6, -3.2, 50.7),
+            shape=(10, 10),
+        )
+        data = np.ones((AEF_NUM_BANDS, 10, 10), dtype=np.int8)
+        table = extract_pixels(data, chunk, 2024)
+        refs = table.column("bng_ref").to_pylist()
+        refs_10km = table.column("grid_10km_ref").to_pylist()
+        assert {r[:2] for r in refs_10km} == {"SS", "ST"}
+        for ref, r10 in zip(refs, refs_10km, strict=True):
+            assert r10 == ref[:3] + ref[6]
+
+    def test_empty_table_keeps_parent_columns(self, tq38_chunk: ChunkSpec) -> None:
+        """All-nodata output still carries the parent-ref columns."""
+        data = np.full((AEF_NUM_BANDS, 1000, 1000), AEF_NODATA, dtype=np.int8)
+        for table in (
+            extract_pixels(data, tq38_chunk, 2024),
+            extract_pixels_spark(data, tq38_chunk, 2024),
+        ):
+            assert table.num_rows == 0
+            assert "grid_10km_ref" in table.column_names
+            assert "grid_1km_ref" in table.column_names
+
+
+@pytest.mark.unit
 class TestWkbBoxes:
     """Tests for _wkb_boxes WKB polygon builder."""
 

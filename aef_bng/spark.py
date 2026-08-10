@@ -39,7 +39,12 @@ def _output_schema() -> pa.Schema:
         PyArrow schema for the UDF output, including the ``geometry_wkb`` field.
     """
     fields: list[tuple[str, pa.DataType]] = (
-        [("bng_ref", pa.string()), ("year", pa.int16())]
+        [
+            ("bng_ref", pa.string()),
+            ("year", pa.int16()),
+            ("grid_10km_ref", pa.string()),
+            ("grid_1km_ref", pa.string()),
+        ]
         + [(name, pa.int8()) for name in AEF_BAND_NAMES]
         + [("geometry_wkb", pa.binary())]
     )
@@ -64,7 +69,12 @@ def _spark_output_schema() -> Any:
     )
 
     fields = (
-        [StructField("bng_ref", StringType(), True), StructField("year", ShortType(), True)]
+        [
+            StructField("bng_ref", StringType(), True),
+            StructField("year", ShortType(), True),
+            StructField("grid_10km_ref", StringType(), True),
+            StructField("grid_1km_ref", StringType(), True),
+        ]
         + [StructField(name, ByteType(), True) for name in AEF_BAND_NAMES]
         + [StructField("geometry_wkb", BinaryType(), True)]
     )
@@ -93,7 +103,8 @@ async def _process_chunk_async(
             chunk is fully inside the boundary / no boundary filtering is active.
 
     Returns:
-        Arrow table with (bng_ref, year, embedding, geometry_wkb) or None if no data.
+        Arrow table with (bng_ref, year, parent refs, embedding, geometry_wkb)
+        or None if no data.
     """
     chunk = ChunkSpec(
         bng_10km_ref=bng_10km_ref,
@@ -433,13 +444,18 @@ def process_with_spark(config: AEFBNGConfig) -> None:
         (
             result_df.write.format("delta")
             .mode("append")
-            .option("overwriteSchema", "true")
+            .option("mergeSchema", "true")
             .saveAsTable(table_name)
         )
         write_elapsed = time.perf_counter() - t0
         logger.info("Processing + write complete in %.1fs -> %s", write_elapsed, table_name)
     else:
-        (result_df.write.format("delta").mode("append").save(config.output_path))
+        (
+            result_df.write.format("delta")
+            .mode("append")
+            .option("mergeSchema", "true")
+            .save(config.output_path)
+        )
         write_elapsed = time.perf_counter() - t0
         logger.info("Processing + write complete in %.1fs -> %s", write_elapsed, config.output_path)
 

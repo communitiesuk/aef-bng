@@ -53,6 +53,25 @@ def _get_prefix(easting: int, northing: int) -> str:
     return PREFIXES[northing // 100_000][easting // 100_000]
 
 
+def _parent_refs(bng_refs: list[str]) -> tuple[list[str], list[str]]:
+    """Derive 10km and 1km parent grid references from 10m BNG references.
+
+    A 10m ref lays out its axes as ``<letters><eeee><nnnn>`` (e.g.
+    ``TQ12345678``), so each parent takes the leading digit(s) of both axes:
+    ``TQ15`` (10km) and ``TQ1256`` (1km). Parents are therefore digit-picks,
+    not string prefixes, of the child ref.
+
+    Args:
+        bng_refs: 10-character 10m BNG references.
+
+    Returns:
+        Tuple of (grid_10km_ref, grid_1km_ref) lists.
+    """
+    grid_10km = [ref[:3] + ref[6] for ref in bng_refs]
+    grid_1km = [ref[:4] + ref[6:8] for ref in bng_refs]
+    return grid_10km, grid_1km
+
+
 def _boundary_mask(mask_wkb: bytes, chunk: ChunkSpec) -> np.ndarray:
     """Rasterise a clipped boundary geometry onto the chunk's pixel grid.
 
@@ -206,7 +225,8 @@ def extract_pixels(
         mask_wkb: Optional boundary geometry (WKB) restricting output pixels.
 
     Returns:
-        Arrow table with columns: bng_ref, year, A00..A63, easting, northing.
+        Arrow table with columns: bng_ref, year, grid_10km_ref, grid_1km_ref,
+        A00..A63, easting, northing.
     """
     result = _compute_pixel_data(data, chunk, mask_wkb)
     if result is None:
@@ -215,9 +235,13 @@ def extract_pixels(
     valid_eastings, valid_northings, _, _, bng_refs, embeddings = result
     n_valid = len(bng_refs)
 
+    grid_10km_refs, grid_1km_refs = _parent_refs(bng_refs)
+
     columns: dict[str, pa.Array] = {
         "bng_ref": pa.array(bng_refs, type=pa.string()),
         "year": pa.array([year] * n_valid, type=pa.int16()),
+        "grid_10km_ref": pa.array(grid_10km_refs, type=pa.string()),
+        "grid_1km_ref": pa.array(grid_1km_refs, type=pa.string()),
     }
 
     for i in range(AEF_NUM_BANDS):
@@ -248,7 +272,8 @@ def extract_pixels_spark(
         mask_wkb: Optional boundary geometry (WKB) restricting output pixels.
 
     Returns:
-        Arrow table with columns: bng_ref, year, A00..A63, geometry_wkb.
+        Arrow table with columns: bng_ref, year, grid_10km_ref, grid_1km_ref,
+        A00..A63, geometry_wkb.
     """
     result = _compute_pixel_data(data, chunk, mask_wkb)
     if result is None:
@@ -257,9 +282,13 @@ def extract_pixels_spark(
     valid_eastings, valid_northings, _, _, bng_refs, embeddings = result
     n_valid = len(bng_refs)
 
+    grid_10km_refs, grid_1km_refs = _parent_refs(bng_refs)
+
     columns: dict[str, pa.Array] = {
         "bng_ref": pa.array(bng_refs, type=pa.string()),
         "year": pa.array([year] * n_valid, type=pa.int16()),
+        "grid_10km_ref": pa.array(grid_10km_refs, type=pa.string()),
+        "grid_1km_ref": pa.array(grid_1km_refs, type=pa.string()),
     }
 
     for i in range(AEF_NUM_BANDS):
@@ -275,6 +304,8 @@ def _empty_table() -> pa.Table:
     columns: dict[str, pa.Array] = {
         "bng_ref": pa.array([], type=pa.string()),
         "year": pa.array([], type=pa.int16()),
+        "grid_10km_ref": pa.array([], type=pa.string()),
+        "grid_1km_ref": pa.array([], type=pa.string()),
     }
     for name in AEF_BAND_NAMES:
         columns[name] = pa.array([], type=pa.int8())
@@ -288,6 +319,8 @@ def _empty_table_spark() -> pa.Table:
     columns: dict[str, pa.Array] = {
         "bng_ref": pa.array([], type=pa.string()),
         "year": pa.array([], type=pa.int16()),
+        "grid_10km_ref": pa.array([], type=pa.string()),
+        "grid_1km_ref": pa.array([], type=pa.string()),
     }
     for name in AEF_BAND_NAMES:
         columns[name] = pa.array([], type=pa.int8())
