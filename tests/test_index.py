@@ -79,7 +79,7 @@ class TestAEFBNGIndex:
         index = AEFBNGIndex()
         index._gdf = _make_mock_gdf()
 
-        # Far north Scotland — outside mock tile coverage
+        # Far north Scotland - outside mock tile coverage
         chunk = ChunkSpec(
             bng_10km_ref="NH52",
             bounds_bng=(250_000, 820_000, 260_000, 830_000),
@@ -118,7 +118,7 @@ class TestAEFBNGIndex:
 
 
 class _Row(dict):
-    """Dict that also supports attribute access — mimics a pandas Series row."""
+    """Dict that also supports attribute access - mimics a pandas Series row."""
 
     def __getattr__(self, name: str) -> object:
         try:

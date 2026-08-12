@@ -45,13 +45,49 @@ def main(verbose: bool) -> None:
 @click.option("--years", required=True)
 @click.option("--table-name", required=True)
 @click.option("--resampling", default="nearest")
-def spark_run(bounds: str, years: str, table_name: str, resampling: str) -> None:
+@click.option(
+    "--boundary-path",
+    default="",
+    help="Vector file (GeoJSON/GPKG) to spatially filter ingestion. Empty disables.",
+)
+@click.option(
+    "--boundary-query",
+    default="",
+    help="Attribute filter on the boundary file, e.g. \"CTRY25NM in ['England']\".",
+)
+@click.option(
+    "--boundary-buffer-m",
+    default=0.0,
+    type=float,
+    help="Outward buffer in metres applied to the boundary geometry.",
+)
+@click.option(
+    "--chunk-size",
+    default=10_000,
+    type=int,
+    help="Processing chunk size in metres (10000 or 5000; 5km quarters worker memory).",
+)
+def spark_run(
+    bounds: str,
+    years: str,
+    table_name: str,
+    resampling: str,
+    boundary_path: str,
+    boundary_query: str,
+    boundary_buffer_m: float,
+    chunk_size: int,
+) -> None:
     """Execute pipeline on-cluster (called by python_wheel_task)."""
     config = AEFBNGConfig(
         years=[int(y) for y in years.strip().strip(",").split(",")],
         bounds=tuple(int(b) for b in bounds.strip().strip(",").split(",")),  # type: ignore[arg-type]
         table_name=table_name,
         resampling=resampling,
+        # Empty strings mean "disabled" so DAB job parameters can switch the filter off.
+        boundary_path=boundary_path.strip() or None,
+        boundary_query=boundary_query.strip() or None,
+        boundary_buffer_m=boundary_buffer_m,
+        chunk_size=chunk_size,
     )
 
     with stopwatch():
@@ -63,7 +99,7 @@ def spark_run(bounds: str, years: str, table_name: str, resampling: str) -> None
 def entrypoint() -> None:
     """Entry point for console script.
 
-    Catches SystemExit(0) for Databricks python_wheel_task compatibility —
+    Catches SystemExit(0) for Databricks python_wheel_task compatibility -
     Databricks treats any SystemExit as a task failure, but Click calls
     sys.exit(0) on success.
     """

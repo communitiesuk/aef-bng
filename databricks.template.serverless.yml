@@ -1,8 +1,8 @@
 # ============================================================================
-# AEF-BNG Databricks Asset Bundle — Serverless
+# AEF-BNG Databricks Asset Bundle - Serverless
 # ============================================================================
 #
-# Uses serverless compute — no cluster startup time, auto-scales.
+# Uses serverless compute - no cluster startup time, auto-scales.
 # Databricks manages the infrastructure.
 #
 # Limitations:
@@ -66,6 +66,17 @@ resources:
           default: "${var.catalog}.${var.schema}.${var.table}"
         - name: resampling
           default: "nearest"
+        # Optional spatial ingest filter: OGR-readable boundary file (empty = disabled).
+        # See docs/workflow/cli.md for the GB (ONS BFE) download example.
+        - name: boundary_path
+          default: ""
+        - name: boundary_query
+          default: ""
+        - name: boundary_buffer_m
+          default: "0"
+        # 5000 quarters per-task memory (serverless worker caps); 10000 suits job clusters.
+        - name: chunk_size
+          default: "5000"
 
       tasks:
         - task_key: aef_bng_process_embeddings
@@ -78,6 +89,10 @@ resources:
               - "--years={{job.parameters.years}}"
               - "--table-name={{job.parameters.table_name}}"
               - "--resampling={{job.parameters.resampling}}"
+              - "--boundary-path={{job.parameters.boundary_path}}"
+              - "--boundary-query={{job.parameters.boundary_query}}"
+              - "--boundary-buffer-m={{job.parameters.boundary_buffer_m}}"
+              - "--chunk-size={{job.parameters.chunk_size}}"
           environment_key: aef_bng_env
 
       environments:

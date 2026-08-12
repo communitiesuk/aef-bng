@@ -95,7 +95,22 @@ def merge_tiles(arrays: list[np.ndarray]) -> np.ndarray:
     merged = arrays[0].copy()
 
     for arr in arrays[1:]:
-        nodata_mask = np.all(merged == AEF_NODATA, axis=0)
-        merged[:, nodata_mask] = arr[:, nodata_mask]
+        merge_tile_into(merged, arr)
 
     return merged
+
+
+def merge_tile_into(merged: np.ndarray, arr: np.ndarray) -> None:
+    """First-valid merge of one reprojected tile into ``merged``, in place.
+
+    Incremental counterpart to :func:`merge_tiles` (same strategy and caveats) -
+    callers merge each tile as it arrives so only the accumulator and one tile
+    are ever held in memory, instead of every reprojected tile at once.
+
+    Args:
+        merged: Accumulator array of shape (64, H, W) int8; modified in place.
+        arr: Reprojected tile of the same shape to fill nodata pixels from.
+    """
+    nodata_mask = np.all(merged == AEF_NODATA, axis=0)
+    if nodata_mask.any():
+        merged[:, nodata_mask] = arr[:, nodata_mask]
