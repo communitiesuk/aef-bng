@@ -37,10 +37,12 @@ def boundary_file(tmp_path: Path) -> Path:
 class TestLoadBoundary:
     """Tests for boundary loading, querying, and buffering."""
 
-    def test_dissolves_all_features(self, boundary_file: Path) -> None:
-        """All features are unioned into one geometry."""
+    def test_combines_all_features(self, boundary_file: Path) -> None:
+        """All features are combined (without dissolving) into one geometry."""
         geometry = load_boundary(str(boundary_file))
         assert geometry.area == pytest.approx(MAINLAND.area + ISLAND.area)
+        assert geometry.contains(MAINLAND.centroid)
+        assert geometry.contains(ISLAND.centroid)
 
     def test_reads_geoparquet(self, tmp_path: Path) -> None:
         """GeoParquet paths are read natively (recommended format)."""
@@ -67,11 +69,54 @@ class TestLoadBoundary:
             load_boundary(str(boundary_file), query="name == 'atlantis'")
 
     def test_buffer_expands_geometry(self, boundary_file: Path) -> None:
-        """Positive buffer grows the dissolved geometry."""
+        """Positive buffer grows the combined geometry."""
         unbuffered = load_boundary(str(boundary_file), query="name == 'mainland'")
         buffered = load_boundary(str(boundary_file), query="name == 'mainland'", buffer_m=1000)
         assert buffered.area > unbuffered.area
         assert buffered.contains(unbuffered)
+
+
+@pytest.mark.unit
+class TestTouchingFeatures:
+    """Undissolved boundaries with features sharing a border (e.g. countries)."""
+
+    @pytest.fixture()
+    def two_countries(self, tmp_path: Path) -> Path:
+        """Two 10km squares sharing the border at x=10,000."""
+        import geopandas as gpd
+
+        gdf = gpd.GeoDataFrame(
+            {"name": ["west", "east"]},
+            geometry=[box(0, 0, 10_000, 10_000), box(10_000, 0, 20_000, 10_000)],
+            crs="EPSG:27700",
+        )
+        path = tmp_path / "countries.gpkg"
+        gdf.to_file(path)
+        return path
+
+    def test_chunk_inside_one_feature_is_full(self, two_countries: Path) -> None:
+        """A chunk away from the internal border still classifies FULL."""
+        boundary = load_boundary(str(two_countries))
+        shapely.prepare(boundary)
+        coverage, mask_wkb = classify_chunk((2_000, 2_000, 8_000, 8_000), boundary)
+        assert coverage is Coverage.FULL
+        assert mask_wkb is None
+
+    def test_chunk_straddling_border_masks_whole_chunk(self, two_countries: Path) -> None:
+        """A chunk across the internal border is PARTIAL with full-cover mask.
+
+        Without dissolving, contains_properly cannot see that the two features
+        jointly cover the chunk - but the clipped mask covers it entirely, so
+        the ingested output is identical to the dissolved case.
+        """
+        boundary = load_boundary(str(two_countries))
+        shapely.prepare(boundary)
+        chunk = (5_000, 0, 15_000, 10_000)
+        coverage, mask_wkb = classify_chunk(chunk, boundary)
+        assert coverage is Coverage.PARTIAL
+        assert mask_wkb is not None
+        clipped = shapely.wkb.loads(mask_wkb)
+        assert clipped.area == pytest.approx(box(*chunk).area)
 
 
 @pytest.mark.unit
