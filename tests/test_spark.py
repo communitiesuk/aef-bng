@@ -7,7 +7,7 @@ import pytest
 from pyspark.sql import SparkSession
 
 from aef_bng.constants import AEF_BAND_NAMES
-from aef_bng.spark import _build_chunks_dataframe, _empty_batch, _output_schema
+from aef_bng.spark import _build_chunks_dataframe, _chunk_from_row, _empty_batch, _output_schema
 
 
 @pytest.mark.unit
@@ -48,6 +48,32 @@ class TestOutputSchema:
         schema = _output_schema()
         assert schema.names[:4] == ["bng_ref", "year", "grid_10km_ref", "grid_1km_ref"]
         assert schema.names[-1] == "geometry_wkb"
+
+
+@pytest.mark.unit
+class TestChunkFromRow:
+    """Executor-side ChunkSpec reconstruction must derive shape from bounds."""
+
+    def test_10km_chunk_shape(self) -> None:
+        """10km bounds give the classic 1000x1000 grid."""
+        chunk = _chunk_from_row("TQ38", (530_000, 180_000, 540_000, 190_000), (0, 0, 0, 0))
+        assert chunk.shape == (1000, 1000)
+
+    def test_5km_chunk_shape(self) -> None:
+        """5km bounds must NOT fall back to the 1000x1000 default.
+
+        The default would extract a 10km grid from a 5km chunk, emitting
+        pixels beyond the chunk bounds that duplicate its neighbours.
+        """
+        chunk = _chunk_from_row("TQ38SW", (530_000, 180_000, 535_000, 185_000), (0, 0, 0, 0))
+        assert chunk.shape == (500, 500)
+
+    def test_transform_matches_bounds(self) -> None:
+        """The affine transform anchors to the chunk's own top-left corner."""
+        chunk = _chunk_from_row("TQ38SW", (530_000, 180_000, 535_000, 185_000), (0, 0, 0, 0))
+        assert chunk.transform is not None
+        assert chunk.transform.c == 530_000
+        assert chunk.transform.f == 185_000
 
 
 @pytest.mark.unit

@@ -8,19 +8,21 @@ Unity Catalog Delta table with liquid clustering.
 from __future__ import annotations
 
 import asyncio
+import gc
 import logging
 import pickle
+import sys
 from typing import TYPE_CHECKING, Any
 
 import numpy as np
 import pyarrow as pa
 
-from aef_bng.constants import AEF_BAND_NAMES, AEF_NODATA
+from aef_bng.constants import AEF_BAND_NAMES, AEF_NODATA, BNG_RESOLUTION
 from aef_bng.extract import extract_pixels_spark
 from aef_bng.grid import BNGOutputGrid, ChunkSpec
 from aef_bng.index import AEFBNGIndex
 from aef_bng.reader import bng_bounds_to_utm, read_tile
-from aef_bng.reproject import merge_tiles, reproject_tile_to_bng
+from aef_bng.reproject import merge_tile_into, reproject_tile_to_bng
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -81,6 +83,36 @@ def _spark_output_schema() -> Any:
     return StructType(fields)
 
 
+def _chunk_from_row(
+    bng_10km_ref: str,
+    bounds_bng: tuple[int, int, int, int],
+    bounds_wgs84: tuple[float, float, float, float],
+) -> ChunkSpec:
+    """Rebuild a ChunkSpec on the executor, deriving pixel shape from bounds.
+
+    ChunkSpec's shape default assumes 10km chunks; any other configured
+    chunk_size must derive (rows, cols) from the actual bounds - otherwise
+    every chunk is extracted on a 1000x1000 grid, emitting pixels beyond the
+    chunk bounds that duplicate its neighbours.
+
+    Args:
+        bng_10km_ref: BNG grid reference naming the chunk.
+        bounds_bng: BNG bounding box (minx, miny, maxx, maxy).
+        bounds_wgs84: The same bounds in WGS84.
+
+    Returns:
+        ChunkSpec with shape matching the bounds at 10m resolution.
+    """
+    minx, miny, maxx, maxy = bounds_bng
+    shape = ((maxy - miny) // BNG_RESOLUTION, (maxx - minx) // BNG_RESOLUTION)
+    return ChunkSpec(
+        bng_10km_ref=bng_10km_ref,
+        bounds_bng=bounds_bng,
+        bounds_wgs84=bounds_wgs84,
+        shape=shape,
+    )
+
+
 async def _process_chunk_async(
     bng_10km_ref: str,
     bounds_bng: tuple[int, int, int, int],
@@ -106,17 +138,15 @@ async def _process_chunk_async(
         Arrow table with (bng_ref, year, parent refs, embedding, geometry_wkb)
         or None if no data.
     """
-    chunk = ChunkSpec(
-        bng_10km_ref=bng_10km_ref,
-        bounds_bng=bounds_bng,
-        bounds_wgs84=bounds_wgs84,
-    )
+    chunk = _chunk_from_row(bng_10km_ref, bounds_bng, bounds_wgs84)
 
     tiles = index.tiles_for_chunk(chunk, year)
     if not tiles:
         return None
 
-    reprojected = []
+    # Merge each tile as it arrives (first-valid, deterministic tile order) so
+    # only the accumulator and one reprojected tile are held at a time.
+    merged: np.ndarray | None = None
     for tile in tiles:
         try:
             tile_crs = str(tile["crs"])
@@ -133,7 +163,11 @@ async def _process_chunk_async(
                 chunk.shape,
                 resampling=resampling,
             )
-            reprojected.append(result)
+            del tile_data, src_data  # release the source window before merging
+            if merged is None:
+                merged = result
+            else:
+                merge_tile_into(merged, result)
         except Exception:
             logger.exception(
                 "Failed to read/reproject tile %s for chunk %s",
@@ -141,11 +175,7 @@ async def _process_chunk_async(
                 bng_10km_ref,
             )
 
-    if not reprojected:
-        return None
-
-    merged = merge_tiles(reprojected)
-    if np.all(merged == AEF_NODATA):
+    if merged is None or np.all(merged == AEF_NODATA):
         return None
 
     return extract_pixels_spark(merged, chunk, year, mask_wkb=mask_wkb)
@@ -172,11 +202,13 @@ def _make_process_partition(  # noqa: C901
     """
 
     def process_partition(batch_iter: Iterator[pa.RecordBatch]) -> Iterator[pa.RecordBatch]:  # noqa: C901
-        """Process all chunks in a partition with a single asyncio event loop.
+        """Process all chunks in a partition, streaming each chunk's output.
 
-        Collects all rows from the batch iterator first, then processes them
-        in one asyncio.run() call. This avoids repeated event loop creation/
-        destruction which causes failures with the obstore/tokio runtime.
+        One event loop is created per partition and driven chunk-by-chunk;
+        each chunk's batches are yielded as soon as it completes, so peak
+        memory is a single chunk's output rather than the whole partition's
+        (important under serverless memory caps). Reusing one loop avoids the
+        event-loop churn that breaks the obstore/tokio runtime.
         """
         index: AEFBNGIndex = pickle.loads(index_bytes)  # noqa: S301
         schema = _output_schema()
@@ -216,38 +248,51 @@ def _make_process_partition(  # noqa: C901
             yield _empty_batch(schema)
             return
 
-        # Process ALL chunks in a single event loop
-        async def _process_all() -> list[pa.Table]:
-            tables: list[pa.Table] = []
-            failed = 0
+        failed = 0
+        yielded = False
+        loop = asyncio.new_event_loop()
+        try:
             for bng_ref, bounds_bng, bounds_wgs84, year, mask_wkb in chunk_rows:
                 try:
-                    result = await _process_chunk_async(
-                        bng_10km_ref=bng_ref,
-                        bounds_bng=bounds_bng,
-                        bounds_wgs84=bounds_wgs84,
-                        year=year,
-                        index=index,
-                        resampling=resampling,
-                        mask_wkb=mask_wkb,
+                    result = loop.run_until_complete(
+                        _process_chunk_async(
+                            bng_10km_ref=bng_ref,
+                            bounds_bng=bounds_bng,
+                            bounds_wgs84=bounds_wgs84,
+                            year=year,
+                            index=index,
+                            resampling=resampling,
+                            mask_wkb=mask_wkb,
+                        )
                     )
-                    if result is not None and result.num_rows > 0:
-                        tables.append(result)
                 except Exception:
                     failed += 1
                     logger.exception("Failed to process chunk %s year %d", bng_ref, year)
-            if failed:
-                logger.warning("Partition: %d/%d chunks failed", failed, len(chunk_rows))
-            return tables
+                    continue
+                if result is None or result.num_rows == 0:
+                    _release_worker_memory()
+                    continue
+                n_rows = result.num_rows
+                # Small batches cap the Arrow-to-JVM serialisation buffer.
+                for record_batch in result.to_batches(max_chunksize=100_000):
+                    if record_batch.num_rows > 0:
+                        yielded = True
+                        yield record_batch
+                result = None
+                _release_worker_memory()
+                logger.info(
+                    "Chunk %s year %d: %d rows, worker peak RSS %.0f MB",
+                    bng_ref,
+                    year,
+                    n_rows,
+                    _peak_rss_mb(),
+                )
+        finally:
+            loop.close()
 
-        output_tables = asyncio.run(_process_all())
-
-        if output_tables:
-            combined = pa.concat_tables(output_tables)
-            for record_batch in combined.to_batches():
-                if record_batch.num_rows > 0:
-                    yield record_batch
-        else:
+        if failed:
+            logger.warning("Partition: %d/%d chunks failed", failed, len(chunk_rows))
+        if not yielded:
             yield _empty_batch(schema)
 
     return process_partition
@@ -257,6 +302,35 @@ def _empty_batch(schema: pa.Schema) -> pa.RecordBatch:
     """Return an empty RecordBatch matching the given schema."""
     columns = {field.name: pa.array([], type=field.type) for field in schema}
     return pa.RecordBatch.from_pydict(columns, schema=schema)
+
+
+def _release_worker_memory() -> None:
+    """Return freed allocator pages to the OS between chunks.
+
+    CPython + glibc rarely hand freed arena pages back, so a reused Python
+    worker's RSS ratchets upward across chunks and tasks even though live
+    objects stay small - eventually breaching fixed per-worker memory caps
+    (serverless ``UDF_PYSPARK_ERROR.OOM``). ``malloc_trim`` forces the
+    release; it is a no-op on non-glibc platforms.
+    """
+    gc.collect()
+    try:
+        import ctypes
+
+        ctypes.CDLL("libc.so.6").malloc_trim(0)
+    except OSError:
+        pass
+
+
+def _peak_rss_mb() -> float:
+    """Peak RSS of this process in MB, or 0.0 where unavailable."""
+    try:
+        import resource
+    except ImportError:  # non-unix platform
+        return 0.0
+    peak = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+    # ru_maxrss is kilobytes on Linux but bytes on macOS
+    return peak / (1024 * 1024) if sys.platform == "darwin" else peak / 1024
 
 
 def _build_chunks_dataframe(
