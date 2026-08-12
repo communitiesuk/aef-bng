@@ -1,20 +1,16 @@
-name: Deploy docs
+name: Docs
 
 on:
+  pull_request:
   push:
     branches: [main]
 
 permissions:
   contents: read
-  pages: write
-  id-token: write
 
 jobs:
-  deploy:
+  build:
     runs-on: ubuntu-latest
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - uses: actions/checkout@v4
 
@@ -24,12 +20,26 @@ jobs:
 
       - run: uv sync --group docs
 
-      - run: uv run mkdocs build
+      # --strict fails the build on warnings (broken links, bad nav entries),
+      # which is exactly what a PR check should catch before merge.
+      - run: uv run mkdocs build --strict
 
-      - uses: actions/upload-pages-artifact@v4
+      - if: github.event_name == 'push'
+        uses: actions/upload-pages-artifact@v4
         with:
           path: site/
           overwrite: true
 
+  deploy:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
       - id: deployment
         uses: actions/deploy-pages@v4

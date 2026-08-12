@@ -125,7 +125,7 @@ def bng_bounds_to_utm(
     Args:
         bounds_bng: (minx, miny, maxx, maxy) in EPSG:27700.
         tile_crs: CRS of the tile (e.g. "EPSG:32630").
-        padding: Extra metres to add on each side (default 500m — generous
+        padding: Extra metres to add on each side (default 500m - generous
             to account for CRS distortion at zone edges).
 
     Returns:

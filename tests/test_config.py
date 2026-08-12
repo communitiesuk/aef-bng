@@ -53,3 +53,45 @@ class TestAEFBNGConfig:
 
         config_with_table = AEFBNGConfig(years=[2024], table_name="cat.schema.tbl")
         assert config_with_table.table_name == "cat.schema.tbl"
+
+
+@pytest.mark.unit
+class TestBoundaryConfig:
+    """Tests for the optional boundary-filter configuration."""
+
+    def test_defaults_disable_filtering(self) -> None:
+        """No boundary settings means filtering is off."""
+        config = AEFBNGConfig(years=[2024])
+        assert config.boundary_path is None
+        assert config.boundary_query is None
+        assert config.boundary_buffer_m == 0.0
+
+    def test_boundary_settings_accepted(self) -> None:
+        """Path with query and buffer validates (existence checked at load time)."""
+        config = AEFBNGConfig(
+            years=[2024],
+            boundary_path="/data/boundary.geojson",
+            boundary_query="CTRY25NM in ['England']",
+            boundary_buffer_m=1000.0,
+        )
+        assert config.boundary_path == "/data/boundary.geojson"
+
+    def test_negative_buffer_raises(self) -> None:
+        """Negative buffer should raise ValueError."""
+        with pytest.raises(ValueError, match="boundary_buffer_m"):
+            AEFBNGConfig(years=[2024], boundary_path="b.geojson", boundary_buffer_m=-1.0)
+
+    def test_nan_buffer_raises(self) -> None:
+        """Non-finite buffer should raise ValueError."""
+        with pytest.raises(ValueError, match="boundary_buffer_m"):
+            AEFBNGConfig(years=[2024], boundary_path="b.geojson", boundary_buffer_m=float("nan"))
+
+    def test_query_without_path_raises(self) -> None:
+        """boundary_query is meaningless without boundary_path."""
+        with pytest.raises(ValueError, match="require boundary_path"):
+            AEFBNGConfig(years=[2024], boundary_query="name == 'x'")
+
+    def test_buffer_without_path_raises(self) -> None:
+        """boundary_buffer_m > 0 is meaningless without boundary_path."""
+        with pytest.raises(ValueError, match="require boundary_path"):
+            AEFBNGConfig(years=[2024], boundary_buffer_m=500.0)

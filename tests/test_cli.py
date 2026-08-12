@@ -35,3 +35,73 @@ class TestCli:
         """--verbose flag is accepted without error."""
         result = CliRunner().invoke(main, ["--verbose", "--help"])
         assert result.exit_code == 0
+
+
+@pytest.mark.unit
+class TestBoundaryOptions:
+    """Tests for the boundary-filter CLI options."""
+
+    def test_spark_run_help_lists_boundary_options(self) -> None:
+        """spark-run --help documents the boundary options."""
+        result = CliRunner().invoke(main, ["spark-run", "--help"])
+        assert result.exit_code == 0
+        assert "--boundary-path" in result.output
+        assert "--boundary-query" in result.output
+        assert "--boundary-buffer-m" in result.output
+
+    def test_empty_boundary_strings_disable_filter(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Empty-string boundary params (DAB defaults) map to None in the config."""
+        captured = {}
+        monkeypatch.setattr(
+            "aef_bng.spark.process_with_spark", lambda config: captured.update(config=config)
+        )
+        result = CliRunner().invoke(
+            main,
+            [
+                "spark-run",
+                "--bounds",
+                "0,0,10000,10000",
+                "--years",
+                "2024",
+                "--table-name",
+                "cat.schema.table",
+                "--boundary-path",
+                "",
+                "--boundary-query",
+                "",
+                "--boundary-buffer-m",
+                "0",
+            ],
+        )
+        assert result.exit_code == 0, result.output
+        assert captured["config"].boundary_path is None
+        assert captured["config"].boundary_query is None
+
+    def test_boundary_options_reach_config(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Non-empty boundary options are passed through to the config."""
+        captured = {}
+        monkeypatch.setattr(
+            "aef_bng.spark.process_with_spark", lambda config: captured.update(config=config)
+        )
+        result = CliRunner().invoke(
+            main,
+            [
+                "spark-run",
+                "--bounds",
+                "0,0,10000,10000",
+                "--years",
+                "2024",
+                "--table-name",
+                "cat.schema.table",
+                "--boundary-path",
+                "/vol/bfe.geojson",
+                "--boundary-query",
+                "CTRY25NM in ['Wales']",
+                "--boundary-buffer-m",
+                "250",
+            ],
+        )
+        assert result.exit_code == 0, result.output
+        assert captured["config"].boundary_path == "/vol/bfe.geojson"
+        assert captured["config"].boundary_query == "CTRY25NM in ['Wales']"
+        assert captured["config"].boundary_buffer_m == 250.0

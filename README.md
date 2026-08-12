@@ -81,6 +81,9 @@ config = AEFBNGConfig(
     years=[2024, 2025],
     bounds=(520830, 170402, 542137, 187507),  # London
     table_name="catalog.schema.aef_embeddings",
+    # Optional spatial filter - omit both for unfiltered ingestion:
+    boundary_path="/Volumes/catalog/schema/raw/boundaries/countries/Countries_December_2025_Boundaries_UK_BFC.parquet",
+    boundary_query="CTRY25NM in ['England', 'Scotland', 'Wales']",
 )
 
 process_with_spark(config)
@@ -95,6 +98,16 @@ aef-bng spark-run \
   --table-name "catalog.schema.aef_embeddings"
 ```
 
+To spatially filter ingestion, add a boundary file (GeoParquet recommended; any
+OGR format accepted). For Great Britain - skipping sea, Ireland, and continental
+coast pixels - we recommend the ONS BFC (full resolution, clipped to the
+coastline) countries; see `docs/workflow/cli.md` for a download example:
+
+```bash
+  --boundary-path "/Volumes/.../Countries_December_2025_Boundaries_UK_BFC.parquet" \
+  --boundary-query "CTRY25NM in ['England', 'Scotland', 'Wales']"
+```
+
 ### Databricks Asset Bundle
 
 ```bash
@@ -103,15 +116,19 @@ databricks bundle deploy -t dev
 databricks bundle run aef_bng_pipeline -t dev \
     --params bounds=520830,170402,542137,187507 \
     --params years=2024,2025 \
-    --params table_name=catalog.schema.aef_embeddings
+    --params table_name=catalog.schema.aef_embeddings \
+    --params boundary_path=/Volumes/catalog/schema/raw/boundaries/countries/Countries_December_2025_Boundaries_UK_BFC.parquet \
+    --params "boundary_query=CTRY25NM in ['England', 'Scotland', 'Wales']"
 ```
 
 ## Output schema
 
 | Column | Type | Description |
-|--------|------|-------------|
+| -------- | ------ | ------------- |
 | `bng_ref` | string | 10-character BNG grid reference (10m cell) |
 | `year` | smallint | Year of the AEF embedding |
+| `grid_10km_ref` | string | 10km parent grid reference (e.g. `TQ38`) |
+| `grid_1km_ref` | string | 1km parent grid reference (e.g. `TQ3182`) |
 | `A00`–`A63` | tinyint | 64 int8 embedding bands |
 | `easting` | integer | BNG easting (metres) |
 | `northing` | integer | BNG northing (metres) |
@@ -167,7 +184,7 @@ Contains public sector information licensed under the Open Government Licence v3
 
 ## Acknowledgements
 
-- [`aef-loader`](https://github.com/jakenotjay/aef-loader) by Jake Wilkins (Apache 2.0) — design patterns and inspiration. See [NOTICE](NOTICE) for details.
+- [`aef-loader`](https://github.com/jakenotjay/aef-loader) by Jake Wilkins (Apache 2.0) - design patterns and inspiration. See [NOTICE](NOTICE) for details.
 - The
 [AlphaEarth Foundations](https://deepmind.google/blog/alphaearth-foundations-helps-map-our-planet-in-unprecedented-detail/)
 Satellite Embedding dataset is produced by Google and Google DeepMind (CC-BY 4.0). Hosted on
