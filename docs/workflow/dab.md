@@ -23,7 +23,7 @@ databricks bundle run aef_bng_pipeline -t dev \
     --params bounds=520830,170402,542137,187507 \
     --params years=2024,2025 \
     --params table_name=catalog.data.aef_embeddings \
-    --params boundary_path=/Volumes/catalog/data/raw/boundaries/countries/Countries_December_2025_Boundaries_UK_BFE.parquet \
+    --params boundary_path=/Volumes/catalog/data/raw/boundaries/countries/Countries_December_2025_Boundaries_UK_BFC.parquet \
     --params "boundary_query=CTRY25NM in ['England', 'Scotland', 'Wales']"
 ```
 
@@ -33,6 +33,9 @@ databricks bundle run aef_bng_pipeline -t dev \
 - No init scripts
 - Libraries specified via `environments`, not `libraries`
 - Requires UC serverless permissions for the job identity
+- Python UDF workers have a fixed memory cap - the serverless template
+  defaults to `chunk_size=5000` (5km chunks), quartering per-task memory
+  versus the 10km chunks used on dedicated clusters
 
 ## Dedicated Job Cluster
 
@@ -52,7 +55,7 @@ databricks bundle run aef_bng_pipeline -t dev \
     --params bounds=0,0,700000,1300000 \
     --params years=2017,2018,2019,2020,2021,2022,2023,2024,2025 \
     --params "table_name=\`your-catalog\`.data.aef_bng_gb" \
-    --params boundary_path=/Volumes/your-catalog/data/raw/boundaries/countries/Countries_December_2025_Boundaries_UK_BFE.parquet \
+    --params boundary_path=/Volumes/your-catalog/data/raw/boundaries/countries/Countries_December_2025_Boundaries_UK_BFC.parquet \
     --params "boundary_query=CTRY25NM in ['England', 'Scotland', 'Wales']"
 ```
 
@@ -92,17 +95,19 @@ Both templates accept the same parameters:
 | `boundary_path` | `""` (off) | Vector file spatially filtering ingestion |
 | `boundary_query` | `""` | Attribute filter on the boundary file |
 | `boundary_buffer_m` | `"0"` | Outward buffer on the boundary, metres |
+| `chunk_size` | `"5000"` serverless / `"10000"` cluster | Processing chunk size in metres; smaller chunks cut per-task memory |
 
 Boundary filtering is off unless `boundary_path` is provided at run time. Any
 boundary file works (GeoParquet recommended; GeoJSON/GPKG also accepted). For
-GB-only ingestion we recommend the ONS BFE (Extent of the Realm) countries -
-download them once as GeoParquet (see the example in [CLI](cli.md)), then:
+GB-only ingestion we recommend the ONS BFC (full resolution, clipped to the
+coastline) countries - download them once as GeoParquet (see the example in
+[CLI](cli.md)), then:
 
 ```bash
 databricks bundle run aef_bng_pipeline -t dev \
     --params bounds=0,0,700000,1300000 \
     --params years=2025 \
-    --params boundary_path=/Volumes/.../Countries_December_2025_Boundaries_UK_BFE.parquet \
+    --params boundary_path=/Volumes/.../Countries_December_2025_Boundaries_UK_BFC.parquet \
     --params "boundary_query=CTRY25NM in ['England', 'Scotland', 'Wales']"
 ```
 

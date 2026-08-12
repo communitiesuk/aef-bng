@@ -26,11 +26,11 @@ TABLE_NAME = f"{CATALOG}.{SCHEMA}.{TABLE}"
 
 Restrict ingestion to pixels intersecting a boundary file - chunks entirely
 outside it are dropped before any S3 read. Any boundary works (GeoParquet
-recommended); for Great Britain we recommend the ONS BFE (Extent of the Realm)
-countries - see the download example in [CLI](cli.md).
+recommended); for Great Britain we recommend the ONS BFC (full resolution,
+clipped to the coastline) countries - see the download example in [CLI](cli.md).
 
 ```python
-BOUNDARY_PATH = f"/Volumes/{CATALOG}/{SCHEMA}/raw/boundaries/countries/Countries_December_2025_Boundaries_UK_BFE.parquet"
+BOUNDARY_PATH = f"/Volumes/{CATALOG}/{SCHEMA}/raw/boundaries/countries/Countries_December_2025_Boundaries_UK_BFC.parquet"
 BOUNDARY_QUERY = "CTRY25NM in ['England', 'Scotland', 'Wales']"
 ```
 
@@ -46,6 +46,7 @@ config = AEFBNGConfig(
     table_name=TABLE_NAME,
     boundary_path=BOUNDARY_PATH,  # omit for unfiltered ingestion
     boundary_query=BOUNDARY_QUERY,
+    chunk_size=5_000,  # serverless: workers cap out near one 10km chunk's peak
 )
 
 grid = BNGOutputGrid(config.bounds, config.chunk_size)
@@ -142,7 +143,8 @@ config = AEFBNGConfig(
     table_name="catalog.schema.aef_wales",
 )
 
-# All of Great Britain (all years), land + foreshore only via the BFE boundary.
+# All of Great Britain (all years), land only via the BFC boundary (clipped to
+# the coastline at Mean High Water).
 # Without the boundary the full bbox also ingests coastal water, Ireland,
 # the Isle of Man, and the continental coast wherever AEF has data.
 from aef_bng.constants import BNG_BOUNDS

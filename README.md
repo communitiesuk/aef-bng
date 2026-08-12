@@ -82,7 +82,7 @@ config = AEFBNGConfig(
     bounds=(520830, 170402, 542137, 187507),  # London
     table_name="catalog.schema.aef_embeddings",
     # Optional spatial filter - omit both for unfiltered ingestion:
-    boundary_path="/Volumes/catalog/schema/raw/boundaries/countries/Countries_December_2025_Boundaries_UK_BFE.parquet",
+    boundary_path="/Volumes/catalog/schema/raw/boundaries/countries/Countries_December_2025_Boundaries_UK_BFC.parquet",
     boundary_query="CTRY25NM in ['England', 'Scotland', 'Wales']",
 )
 
@@ -100,11 +100,11 @@ aef-bng spark-run \
 
 To spatially filter ingestion, add a boundary file (GeoParquet recommended; any
 OGR format accepted). For Great Britain - skipping sea, Ireland, and continental
-coast pixels - we recommend the ONS BFE (Extent of the Realm) countries; see
-`docs/workflow/cli.md`, which includes a download example:
+coast pixels - we recommend the ONS BFC (full resolution, clipped to the
+coastline) countries; see `docs/workflow/cli.md` for a download example:
 
 ```bash
-  --boundary-path "/Volumes/.../Countries_December_2025_Boundaries_UK_BFE.parquet" \
+  --boundary-path "/Volumes/.../Countries_December_2025_Boundaries_UK_BFC.parquet" \
   --boundary-query "CTRY25NM in ['England', 'Scotland', 'Wales']"
 ```
 
@@ -117,7 +117,7 @@ databricks bundle run aef_bng_pipeline -t dev \
     --params bounds=520830,170402,542137,187507 \
     --params years=2024,2025 \
     --params table_name=catalog.schema.aef_embeddings \
-    --params boundary_path=/Volumes/catalog/schema/raw/boundaries/countries/Countries_December_2025_Boundaries_UK_BFE.parquet \
+    --params boundary_path=/Volumes/catalog/schema/raw/boundaries/countries/Countries_December_2025_Boundaries_UK_BFC.parquet \
     --params "boundary_query=CTRY25NM in ['England', 'Scotland', 'Wales']"
 ```
 

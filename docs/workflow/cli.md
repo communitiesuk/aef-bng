@@ -11,7 +11,7 @@ aef-bng spark-run \
   --years "2024,2025" \
   --table-name "catalog.data.aef_embeddings" \
   --resampling "nearest" \
-  --boundary-path "/Volumes/catalog/data/raw/boundaries/countries/Countries_December_2025_Boundaries_UK_BFE.parquet" \
+  --boundary-path "/Volumes/catalog/data/raw/boundaries/countries/Countries_December_2025_Boundaries_UK_BFC.parquet" \
   --boundary-query "CTRY25NM in ['England', 'Scotland', 'Wales']"
 ```
 
@@ -26,9 +26,10 @@ bounds - see [Boundary filtering](#boundary-filtering) below.
 | `--years` | Years to process, comma-separated | `"2024,2025"` |
 | `--table-name` | Unity Catalog three-level name | `` "catalog.schema.table" `` |
 | `--resampling` | Reprojection resampling method | `"nearest"` (default) |
-| `--boundary-path` | Boundary file spatially filtering ingestion (empty = off) | `"/Volumes/.../UK_BFE.parquet"` |
+| `--boundary-path` | Boundary file spatially filtering ingestion (empty = off) | `"/Volumes/.../UK_BFC.parquet"` |
 | `--boundary-query` | Attribute filter on the boundary file | `"CTRY25NM in ['England', 'Scotland', 'Wales']"` |
 | `--boundary-buffer-m` | Outward buffer on the boundary, metres | `0` (default) |
+| `--chunk-size` | Processing chunk size in metres; `5000` quarters per-task memory for serverless worker caps | `10000` (default) |
 
 ## Boundary filtering
 
@@ -39,8 +40,9 @@ with `all_touched` ("any overlap") semantics.
 
 Any boundary file works - **GeoParquet is recommended** (compact, fast, typed CRS;
 `.parquet`/`.geoparquet` are read natively), and GeoJSON/GPKG/any OGR format is
-also accepted. For Great Britain we recommend the ONS **BFE** ("Extent of the
-Realm") country boundaries - Mean Low Water including offshore islands. Download
+also accepted. For Great Britain we recommend the ONS **BFC** (full resolution,
+clipped to the coastline) country boundaries - Mean High Water, so ingestion
+stops at the land outline rather than extending across the foreshore. Download
 them once as GeoParquet (example below), then:
 
 ```bash
@@ -48,14 +50,14 @@ aef-bng spark-run \
   --bounds "0,0,700000,1300000" \
   --years "2025" \
   --table-name "catalog.data.aef_embeddings" \
-  --boundary-path "/Volumes/catalog/data/raw/boundaries/countries/Countries_December_2025_Boundaries_UK_BFE.parquet" \
+  --boundary-path "/Volumes/catalog/data/raw/boundaries/countries/Countries_December_2025_Boundaries_UK_BFC.parquet" \
   --boundary-query "CTRY25NM in ['England', 'Scotland', 'Wales']"
 ```
 
 For GB, ~2/3 of the full-bbox chunks (sea, Ireland, continental coast) are dropped
 before any S3 read.
 
-### Example: downloading the ONS BFE GB boundary
+### Example: downloading the ONS BFC GB boundary
 
 One-off step - run in a Databricks notebook to write straight to a Unity Catalog
 volume (adapt the URL/checks for any other ArcGIS FeatureServer layer). Features
@@ -76,12 +78,12 @@ import geopandas as gpd
 
 SERVICE_URL = (
     "https://services1.arcgis.com/ESMARspQHYMw9BZ9/arcgis/rest/services/"
-    "Countries_December_2025_Boundaries_UK_BFE/FeatureServer/0/query"
+    "Countries_December_2025_Boundaries_UK_BFC/FeatureServer/0/query"
 )
 COUNTRIES = ["England", "Scotland", "Wales", "Northern Ireland"]
 OUTPUT = (
     "/Volumes/<catalog>/<schema>/raw/boundaries/countries/"
-    "Countries_December_2025_Boundaries_UK_BFE.parquet"
+    "Countries_December_2025_Boundaries_UK_BFC.parquet"
 )
 
 
@@ -90,7 +92,7 @@ def fetch_country(name: str) -> dict:
         {
             "where": f"CTRY25NM='{name}'",
             "outFields": "CTRY25CD,CTRY25NM",
-            "geometryPrecision": "7",  # ~1cm - big size saving on full-res BFE
+            "geometryPrecision": "7",  # ~1cm - big size saving on full-res BFC
             "f": "geojson",
         }
     )
@@ -108,11 +110,11 @@ with ThreadPoolExecutor(max_workers=len(COUNTRIES)) as pool:
 gdf = gpd.GeoDataFrame.from_features(features, crs="EPSG:4326")
 gdf.to_parquet(OUTPUT)
 
-# Sanity check: dissolved England+Scotland+Wales BFE area should slightly
-# exceed the 228,900 km2 clipped land area (adds intertidal foreshore).
+# Sanity check: dissolved England+Scotland+Wales BFC area should closely
+# match the ~228,900 km2 GB land area (BFC clips to the coastline at MHW).
 gb = gdf[gdf["CTRY25NM"].isin(["England", "Scotland", "Wales"])].to_crs("EPSG:27700")
 area_km2 = gb.geometry.union_all().area / 1e6
-assert 228_900 < area_km2 < 250_000, f"implausible GB area: {area_km2:,.0f} km2"
+assert 225_000 < area_km2 < 235_000, f"implausible GB area: {area_km2:,.0f} km2"
 ```
 
 ## As a Databricks Job (manual setup)
@@ -136,7 +138,7 @@ assert 228_900 < area_km2 < 250_000, f"implausible GB area: {area_km2:,.0f} km2"
      "--bounds", "0,0,700000,1300000",
      "--years", "2025",
      "--table-name", "`catalog`.schema.table",
-     "--boundary-path", "/Volumes/catalog/schema/raw/boundaries/countries/Countries_December_2025_Boundaries_UK_BFE.parquet",
+     "--boundary-path", "/Volumes/catalog/schema/raw/boundaries/countries/Countries_December_2025_Boundaries_UK_BFC.parquet",
      "--boundary-query", "CTRY25NM in ['England', 'Scotland', 'Wales']"]
     ```
 
