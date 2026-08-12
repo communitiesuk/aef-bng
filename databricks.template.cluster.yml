@@ -60,6 +60,9 @@ resources:
           default: ""
         - name: boundary_buffer_m
           default: "0"
+        # 5000 quarters per-task memory (serverless worker caps); 10000 suits job clusters.
+        - name: chunk_size
+          default: "10000"
 
       job_clusters:
         - job_cluster_key: aef_bng_pipeline_cluster
@@ -106,6 +109,7 @@ resources:
               - "--boundary-path={{job.parameters.boundary_path}}"
               - "--boundary-query={{job.parameters.boundary_query}}"
               - "--boundary-buffer-m={{job.parameters.boundary_buffer_m}}"
+              - "--chunk-size={{job.parameters.chunk_size}}"
           libraries:
             - whl: ./dist/*.whl
 

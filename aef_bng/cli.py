@@ -61,6 +61,12 @@ def main(verbose: bool) -> None:
     type=float,
     help="Outward buffer in metres applied to the boundary geometry.",
 )
+@click.option(
+    "--chunk-size",
+    default=10_000,
+    type=int,
+    help="Processing chunk size in metres (10000 or 5000; 5km quarters worker memory).",
+)
 def spark_run(
     bounds: str,
     years: str,
@@ -69,6 +75,7 @@ def spark_run(
     boundary_path: str,
     boundary_query: str,
     boundary_buffer_m: float,
+    chunk_size: int,
 ) -> None:
     """Execute pipeline on-cluster (called by python_wheel_task)."""
     config = AEFBNGConfig(
@@ -80,6 +87,7 @@ def spark_run(
         boundary_path=boundary_path.strip() or None,
         boundary_query=boundary_query.strip() or None,
         boundary_buffer_m=boundary_buffer_m,
+        chunk_size=chunk_size,
     )
 
     with stopwatch():
