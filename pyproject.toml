@@ -43,6 +43,7 @@ docs = [
     "mkdocs-material==9.7.*",
     "mkdocs==1.6.*",
     "mkdocstrings[python]>=0.25,<1.0",
+    "pymdown-extensions>=11.0.1,<12",
 ]
 
 [project.optional-dependencies]
@@ -58,7 +59,6 @@ Repository = "https://github.com/jordanp-dluhc/aef-bng"
 
 [tool.uv]
 managed = true
-exclude-newer = "2026-05-29T02:07:43Z"
 
 
 [build-system]
