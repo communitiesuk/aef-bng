@@ -123,3 +123,25 @@ class TestReadTile:
 
         _, kwargs = mock_geotiff.read.call_args
         assert "window" in kwargs
+
+    async def test_read_tile_without_window_reads_whole_tile(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """No window bounds: the full tile is read and returned with its transform."""
+        tile_transform = Affine(10, 0, 500_000, 0, -10, 5_800_000)
+        mock_geotiff = AsyncMock()
+        mock_geotiff.crs = "EPSG:32630"
+        mock_array = MagicMock()
+        mock_array.data = np.ones((64, 5, 5), dtype=np.int8)
+        mock_array.transform = tile_transform
+        mock_geotiff.read.return_value = mock_array
+        monkeypatch.setattr(aef_bng.reader.GeoTIFF, "open", AsyncMock(return_value=mock_geotiff))
+
+        result = await read_tile("s3://bucket/test.tif")
+
+        assert result is not None
+        data, transform, crs = result
+        assert data.shape == (64, 5, 5)
+        assert transform == tile_transform
+        assert crs == "EPSG:32630"
+        mock_geotiff.read.assert_called_once_with()

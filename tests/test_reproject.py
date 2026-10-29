@@ -24,6 +24,28 @@ class TestReprojectTileToBng:
         assert result.shape == (AEF_NUM_BANDS, 1000, 1000)
         assert result.dtype == np.int8
 
+    def test_known_point_lands_in_right_pixel(self) -> None:
+        """A source pixel centred on a known point reprojects into that point's BNG pixel.
+
+        The point is a destination pixel centre and sits on a source pixel centre, so
+        nearest resampling marks exactly one destination pixel. Neighbouring destination
+        centres are 10m away, outside the source pixel's 7.07m half-diagonal.
+        """
+        from pyproj import Transformer
+
+        point = (530_105.0, 180_095.0)
+        cx, cy = Transformer.from_crs("EPSG:27700", "EPSG:32630", always_xy=True).transform(*point)
+        src = np.full((AEF_NUM_BANDS, 101, 101), AEF_NODATA, dtype=np.int8)
+        src[:, 50, 50] = 99
+        src_tf = Affine(10, 0, cx - 505, 0, -10, cy + 505)  # pixel (50, 50) centred on point
+        dst_tf = Affine(10, 0, 530_000, 0, -10, 180_200)
+
+        result = reproject_tile_to_bng(src, src_tf, "EPSG:32630", dst_tf, (20, 20))
+
+        rows, cols = np.nonzero(result[0] == 99)
+        assert list(zip(rows.tolist(), cols.tolist(), strict=True)) == [(10, 10)]
+        np.testing.assert_array_equal(result[:, 10, 10], 99)
+
     def test_nodata_fill(self) -> None:
         """Unmapped pixels should be AEF_NODATA."""
         # Source is entirely nodata

@@ -135,11 +135,20 @@ known-third-party = ["databricks", "geopandas", "pyspark", "sedona"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+addopts = ["--strict-markers"]
+# Every test carries exactly one of these; tests/conftest.py rejects any that don't.
 markers = [
-    "unit: unit tests (no network)",
-    "integration: integration tests (requires network)",
+    "unit: unit tests (no network, no Spark session) - the CI suite",
+    "integration: integration tests (requires network access to Source Cooperative)",
+    "databricks: needs a Databricks Connect session (credentials in .env)",
 ]
 asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+filterwarnings = [
+    # Fail on deprecations raised from our own code, so they get fixed before removal.
+    "error::DeprecationWarning:aef_bng",
+    "error::PendingDeprecationWarning:aef_bng",
+]
 
 [tool.coverage.run]
 branch = true
@@ -147,6 +156,8 @@ source = ["aef_bng"]
 
 [tool.coverage.report]
 show_missing = true
+# The unit suite reached 89%; what's left needs a Spark session (pytest -m databricks).
+fail_under = 85
 
 [tool.pyrefly]
 project-includes = ["aef_bng"]

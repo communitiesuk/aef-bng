@@ -2,10 +2,15 @@
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 import pytest
 from click.testing import CliRunner
 
-from aef_bng.cli import main
+from aef_bng.cli import entrypoint, main
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 
 @pytest.mark.unit
@@ -105,3 +110,28 @@ class TestBoundaryOptions:
         assert captured["config"].boundary_path == "/vol/bfe.geojson"
         assert captured["config"].boundary_query == "CTRY25NM in ['Wales']"
         assert captured["config"].boundary_buffer_m == 250.0
+
+
+@pytest.mark.unit
+class TestEntrypoint:
+    """The console-script wrapper Databricks python_wheel_task runs.
+
+    Databricks fails the task on any SystemExit, but Click exits with code 0 on success.
+    """
+
+    @staticmethod
+    def _main_exiting(code: int) -> Callable[[], None]:
+        def fake_main() -> None:
+            raise SystemExit(code)
+
+        return fake_main
+
+    def test_success_exit_is_swallowed(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr("aef_bng.cli.main", self._main_exiting(0))
+        entrypoint()  # must return normally
+
+    def test_failure_exit_propagates(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr("aef_bng.cli.main", self._main_exiting(2))
+        with pytest.raises(SystemExit) as exc:
+            entrypoint()
+        assert exc.value.code == 2

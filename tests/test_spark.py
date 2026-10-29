@@ -1,13 +1,28 @@
-"""Tests for aef_bng.spark - pure functions only, no Spark session required."""
+"""Tests for aef_bng.spark schemas and DataFrame construction.
+
+The executor-side worker logic is covered in test_spark_worker.py.
+"""
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 import pyarrow as pa
 import pytest
-from pyspark.sql import SparkSession
 
 from aef_bng.constants import AEF_BAND_NAMES
-from aef_bng.spark import _build_chunks_dataframe, _chunk_from_row, _empty_batch, _output_schema
+from aef_bng.spark import (
+    _build_chunks_dataframe,
+    _chunk_from_row,
+    _empty_batch,
+    _output_schema,
+    _spark_output_schema,
+)
+
+if TYPE_CHECKING:
+    from pyspark.sql import SparkSession
+
+    from aef_bng.config import AEFBNGConfig
 
 
 @pytest.mark.unit
@@ -48,6 +63,26 @@ class TestOutputSchema:
         schema = _output_schema()
         assert schema.names[:4] == ["bng_ref", "year", "grid_10km_ref", "grid_1km_ref"]
         assert schema.names[-1] == "geometry_wkb"
+
+    def test_spark_schema_matches_arrow_schema(self) -> None:
+        """The hand-written Spark StructType must mirror the Arrow schema field by field.
+
+        mapInArrow fails at runtime on the cluster if the batches the worker yields
+        don't match the declared Spark schema.
+        """
+        types = pytest.importorskip("pyspark.sql.types")
+        arrow_to_spark = {
+            pa.string(): types.StringType(),
+            pa.int16(): types.ShortType(),
+            pa.int8(): types.ByteType(),
+            pa.binary(): types.BinaryType(),
+        }
+        arrow = _output_schema()
+        spark = _spark_output_schema()
+
+        assert [f.name for f in spark.fields] == arrow.names
+        for arrow_field, spark_field in zip(arrow, spark.fields, strict=True):
+            assert spark_field.dataType == arrow_to_spark[arrow_field.type], arrow_field.name
 
 
 @pytest.mark.unit
@@ -94,16 +129,12 @@ class TestEmptyBatch:
         assert "geometry_wkb" in batch.schema.names
 
 
-@pytest.mark.integration
+@pytest.mark.databricks
 class TestSparkDataFrame:
     """Tests for spark dataframe construction."""
 
-    def test_build_chunks_dataframe(self, spark: object, sample_config: object) -> None:
+    def test_build_chunks_dataframe(self, spark: SparkSession, sample_config: AEFBNGConfig) -> None:
         """Test _build_chunks_dataframe creates correct schema and row counts."""
-
-        if not isinstance(spark, SparkSession):
-            pytest.skip("No spark session")
-
         config = sample_config
         df = _build_chunks_dataframe(spark, config)
 

@@ -75,6 +75,26 @@ class TestLoadBoundary:
         assert buffered.area > unbuffered.area
         assert buffered.contains(unbuffered)
 
+    def test_missing_crs_raises(self, tmp_path: Path) -> None:
+        """Without a CRS the boundary can't be put into BNG, so it is rejected."""
+        import geopandas as gpd
+
+        path = tmp_path / "no_crs.parquet"
+        gpd.GeoDataFrame(geometry=[MAINLAND]).to_parquet(path)
+        with pytest.raises(ValueError, match="no CRS"):
+            load_boundary(str(path))
+
+    def test_no_polygons_raises(self, tmp_path: Path) -> None:
+        """A boundary with no area (lines only) would mask out every pixel."""
+        import geopandas as gpd
+
+        path = tmp_path / "lines.gpkg"
+        gpd.GeoDataFrame(
+            geometry=[LineString([(0, 0), (10_000, 10_000)])], crs="EPSG:27700"
+        ).to_file(path)
+        with pytest.raises(ValueError, match="empty after processing"):
+            load_boundary(str(path))
+
 
 @pytest.mark.unit
 class TestTouchingFeatures:

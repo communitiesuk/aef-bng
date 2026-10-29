@@ -2,12 +2,17 @@
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 import numpy as np
 import pytest
 
 from aef_bng.config import AEFBNGConfig
 from aef_bng.constants import AEF_NODATA, AEF_NUM_BANDS
 from aef_bng.grid import ChunkSpec
+
+if TYPE_CHECKING:
+    from pyspark.sql import SparkSession
 
 
 @pytest.fixture()
@@ -48,16 +53,43 @@ def all_nodata_raster() -> np.ndarray:
 
 
 @pytest.fixture(scope="session")
-def spark() -> object:
-    """Local SparkSession for testing."""
-    try:
-        from pyspark.sql import SparkSession
-    except ImportError:
-        pytest.skip("pyspark not installed")
+def spark() -> SparkSession:
+    """Databricks Connect session (or the cluster session when run on Databricks).
 
-    return (
-        SparkSession.builder.master("local[1]")
-        .appName("pytest-pyspark")
-        .config("spark.sql.execution.arrow.pyspark.enabled", "true")
-        .getOrCreate()
-    )
+    The ``spark`` extra installs databricks-connect, which replaces pyspark and
+    cannot start a local ``master("local[1]")`` session, so Spark tests need a
+    workspace. Skips when no credentials are configured (see .env.example).
+    """
+    try:
+        from aef_bng.utils import (
+            DatabricksSettings,
+            get_or_create_spark_session,
+            in_databricks,
+        )
+    except ImportError:
+        pytest.skip("databricks-connect not installed (install the spark extra)")
+
+    settings = DatabricksSettings()
+    if not in_databricks() and not (settings.databricks_host and settings.databricks_token):
+        pytest.skip("Databricks credentials not configured (see .env.example)")
+
+    # Classic cluster if DATABRICKS_CLUSTER_ID is set, otherwise serverless.
+    return get_or_create_spark_session(serverless=not settings.databricks_cluster_id)
+
+
+_SUITE_MARKERS = ("unit", "integration", "databricks")
+
+
+def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:
+    """Reject tests that don't carry exactly one suite marker.
+
+    CI selects ``-m unit``, so a test with no marker would silently never run there.
+    """
+    bad = []
+    for item in items:
+        found = [m for m in _SUITE_MARKERS if item.get_closest_marker(m)]
+        if len(found) != 1:
+            bad.append(f"{item.nodeid} ({', '.join(found) or 'no marker'})")
+    if bad:
+        msg = f"Each test needs exactly one of {_SUITE_MARKERS} markers:\n  " + "\n  ".join(bad)
+        raise pytest.UsageError(msg)
