@@ -26,4 +26,4 @@ jobs:
         with:
           version: "latest"
       - run: uv sync --group dev --extra spark
-      - run: uv run pytest tests/ -v -m "unit" --tb=short
+      - run: uv run pytest tests/ -v -m "unit" --tb=short --cov --cov-report=term-missing

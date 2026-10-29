@@ -3,7 +3,11 @@
 from __future__ import annotations
 
 import geopandas as gpd
+import pandas as pd
+import pyarrow as pa
+import pyarrow.dataset as ds
 import pytest
+import shapely
 from shapely.geometry import box
 
 from aef_bng.grid import ChunkSpec
@@ -99,22 +103,70 @@ class TestAEFBNGIndex:
         with pytest.raises(RuntimeError, match="not loaded"):
             index.tiles_for_chunk(chunk, 2024)
 
-    def test_load_for_bounds(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """Test load_for_bounds with mocked network request."""
-        mock_gdf = _make_mock_gdf()
 
-        import geopandas as gpd
+_LONDON_WGS84 = (-0.5, 51.0, 0.5, 52.0)
+_TQ38 = (530_000, 180_000, 540_000, 190_000)
 
-        def mock_read_parquet(*args: object, **kwargs: object) -> gpd.GeoDataFrame:
-            return mock_gdf
 
-        monkeypatch.setattr(gpd, "read_parquet", mock_read_parquet)
+def _stac_table() -> pa.Table:
+    """A tiny STAC GeoParquet index: London tiles for 2022-2024, plus one in Scotland."""
+    rows = [
+        ("london_2022", 2022, _LONDON_WGS84),
+        ("london_2023", 2023, _LONDON_WGS84),
+        ("london_2024", 2024, _LONDON_WGS84),
+        ("highlands_2024", 2024, (-5.0, 57.0, -4.0, 58.0)),
+    ]
+    return pa.table(
+        {
+            "id": [r[0] for r in rows],
+            "path": [f"s3://bucket/{r[0]}.tif" for r in rows],
+            "crs": ["EPSG:32630"] * len(rows),
+            "datetime": pa.array(
+                [pd.Timestamp(year=r[1], month=6, day=1, tz="UTC") for r in rows],
+                pa.timestamp("us", tz="UTC"),
+            ),
+            "bbox": [dict(zip(("xmin", "ymin", "xmax", "ymax"), r[2], strict=True)) for r in rows],
+            "geometry": [shapely.to_wkb(box(*r[2])) for r in rows],
+        }
+    )
 
+
+@pytest.fixture()
+def stac_index(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Serve _stac_table() through load_for_bounds' real pushdown filter instead of S3."""
+
+    def fake_read_parquet(
+        path: str, filesystem: object = None, filters: ds.Expression | None = None
+    ) -> gpd.GeoDataFrame:
+        df = ds.dataset(_stac_table()).to_table(filter=filters).to_pandas()
+        geometry = gpd.GeoSeries.from_wkb(df.pop("geometry"), crs="EPSG:4326")
+        return gpd.GeoDataFrame(df, geometry=geometry)
+
+    monkeypatch.setattr("aef_bng.index.gpd.read_parquet", fake_read_parquet)
+    monkeypatch.setattr("aef_bng.index.FsspecStore", lambda *args, **kwargs: None)
+
+
+@pytest.mark.unit
+@pytest.mark.usefixtures("stac_index")
+class TestLoadForBounds:
+    """load_for_bounds' spatial and temporal pushdown filters."""
+
+    def test_multiple_years_are_ored(self) -> None:
+        gdf = AEFBNGIndex().load_for_bounds(_TQ38, years=[2023, 2024])
+        assert sorted(gdf["id"]) == ["london_2023", "london_2024"]
+
+    def test_no_years_means_no_temporal_filter(self) -> None:
+        gdf = AEFBNGIndex().load_for_bounds(_TQ38)
+        assert sorted(gdf["id"]) == ["london_2022", "london_2023", "london_2024"]
+
+    def test_tiles_outside_bounds_are_dropped(self) -> None:
+        gdf = AEFBNGIndex().load_for_bounds(_TQ38, years=[2024])
+        assert list(gdf["id"]) == ["london_2024"]
+
+    def test_loaded_index_answers_chunk_queries(self, tq38_chunk: ChunkSpec) -> None:
         index = AEFBNGIndex()
-        bounds = (530_000, 180_000, 540_000, 190_000)
-        gdf = index.load_for_bounds(bounds, years=[2024])
-
-        assert len(gdf) >= 0
+        index.load_for_bounds(_TQ38, years=[2024])
+        assert [t["year"] for t in index.tiles_for_chunk(tq38_chunk, 2024)] == [2024]
 
 
 class _Row(dict):

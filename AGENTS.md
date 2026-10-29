@@ -53,8 +53,8 @@ The workspace relies on a robust and modern Python ecosystem. AI Agents must inv
 - **Type Checking:** Strict type verification utilizing `pyrefly`.
   - Run Typecheck: `uv run nox -s pyrefly`.
 - **Testing Suite:** Orchestrated by `pytest` with `pytest-asyncio`, `pytest-cov`, and `hypothesis` (property-based testing).
-  - Run Tests: `make test` or `uv run pytest`.
-  - Test constraints: Tests are segmented via markers (`@pytest.mark.unit` vs `@pytest.mark.integration`).
+  - Run Tests: `make test` or `uv run pytest -m unit` (what CI runs, with an 85% coverage floor).
+  - Test constraints: Every test carries exactly one marker, enforced at collection: `@pytest.mark.unit` (no network, no Spark session), `@pytest.mark.integration` (reads Source Cooperative), or `@pytest.mark.databricks` (needs a Databricks Connect session from `.env`). The Spark worker logic (`process_partition`, `_process_chunk_async`) is plain Python over Arrow, so test it as `unit` with a fake index and stubbed `read_tile` (see `tests/test_spark_worker.py`).
 - **Task Orchestration:** The `Makefile` exposes common developer routines, while `nox` (`noxfile.py`) facilitates consistent matrix-based testing and security scanning (`bandit`).
 
 ## 5. Agent Coding Guidelines

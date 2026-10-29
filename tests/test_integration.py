@@ -36,7 +36,12 @@ async def test_live_read_tile() -> None:
 def test_live_index_load() -> None:
     """Live network test to query the AEF STAC index."""
     index = AEFBNGIndex()
-    # small bounding box in BNG (TQ38 central London)
+    # small bounding box in BNG (TQ38 central London) - AEF covers it in every year
     bounds = (530_000, 180_000, 531_000, 181_000)
-    gdf = index.load_for_bounds(bounds)
-    assert len(gdf) >= 0
+    gdf = index.load_for_bounds(bounds, years=[2024])
+    assert len(gdf) > 0
+
+    for _, row in gdf.iterrows():
+        assert _extract_asset_path(row).endswith((".tif", ".tiff"))
+        assert _extract_crs(row).startswith("EPSG:326")  # northern-hemisphere UTM
+        assert row["datetime"].year == 2024

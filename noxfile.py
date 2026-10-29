@@ -32,11 +32,23 @@ def pyrefly(session: nox.Session) -> None:
     _run(session, "pyrefly", "check", *args)
 
 
-@nox.session(python=LATEST_PYTHON, tags=["test"])
+@nox.session(python="3.12", tags=["test"])
 def tests(session: nox.Session) -> None:
-    """Run the test suite."""
-    session.install(".[dev]")
-    _run(session, "pytest", "-m", "unit", *session.posargs)
+    """Run the unit suite against the locked dev + spark environment, as CI does."""
+    # dev is a dependency group, not an extra, so `install(".[dev]")` can't provide it.
+    session.run_install(
+        "uv",
+        "sync",
+        "--frozen",
+        "--group",
+        "dev",
+        "--extra",
+        "spark",
+        env={"UV_PROJECT_ENVIRONMENT": session.virtualenv.location},
+        external=True,
+    )
+    # Not _run: external=True would fall back to whichever pytest is on PATH.
+    session.run("pytest", "-m", "unit", *session.posargs)
 
 
 @nox.session(python=PYTHON_VERSIONS, tags=["security"])

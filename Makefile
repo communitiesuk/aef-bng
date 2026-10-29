@@ -39,7 +39,7 @@ check: ## run code quality tools
 test: ## test the code with pytest
 	@echo "$(PURPLE)--- Running Tests ---$(ENDC)"
 	@echo "$(BLUE) > Running pytest with coverage report...$(ENDC)"
-	@uv run pytest --cov --cov-config=pyproject.toml --cov-report=html --color=yes
+	@uv run pytest -m unit --cov --cov-config=pyproject.toml --cov-report=html --color=yes
 	@echo "$(GREEN)Tests finished!$(ENDC)"
 
 nox: ## run nox session
